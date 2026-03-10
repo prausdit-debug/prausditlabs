@@ -1,0 +1,40 @@
+import { NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
+
+export async function GET() {
+  const models = await prisma.modelVersion.findMany({
+    orderBy: { createdAt: "desc" },
+    include: { experiment: { select: { name: true } } }
+  })
+  return NextResponse.json(models.map(m => ({
+    ...m,
+    parameterCount: m.parameterCount?.toString() ?? null,
+    fileSizeBytes: m.fileSizeBytes?.toString() ?? null,
+  })))
+}
+
+export async function POST(req: Request) {
+  const body = await req.json()
+  const model = await prisma.modelVersion.create({
+    data: {
+      name: body.name,
+      version: body.version,
+      description: body.description,
+      parameterCount: body.parameterCount ? BigInt(body.parameterCount) : null,
+      experimentId: body.experimentId || null,
+      quantization: body.quantization || null,
+      deploymentFormat: body.deploymentFormat || null,
+      pass1Score: body.pass1Score ? Number(body.pass1Score) : null,
+      bleuScore: body.bleuScore ? Number(body.bleuScore) : null,
+      mmluScore: body.mmluScore ? Number(body.mmluScore) : null,
+      fileSizeBytes: body.fileSizeBytes ? BigInt(body.fileSizeBytes) : null,
+      isDeployed: body.isDeployed || false,
+      notes: body.notes || null,
+    }
+  })
+  return NextResponse.json({
+    ...model,
+    parameterCount: model.parameterCount?.toString() ?? null,
+    fileSizeBytes: model.fileSizeBytes?.toString() ?? null,
+  })
+}

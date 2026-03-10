@@ -1,0 +1,40 @@
+import { NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
+
+export async function GET() {
+  try {
+    const steps = await prisma.roadmapStep.findMany({
+      orderBy: { order: "asc" },
+      include: { tasks: { orderBy: { createdAt: "asc" } } },
+    })
+    return NextResponse.json(steps)
+  } catch (error) {
+    console.error("Roadmap GET error:", error)
+    return NextResponse.json({ error: "Failed to fetch roadmap" }, { status: 500 })
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json()
+    if (!body.title || body.phase === undefined) {
+      return NextResponse.json({ error: "title and phase are required" }, { status: 400 })
+    }
+    const step = await prisma.roadmapStep.create({
+      data: {
+        phase: body.phase,
+        title: body.title,
+        description: body.description || "",
+        status: "PENDING",
+        order: body.order || 99,
+        tasks: body.tasks ? { create: body.tasks } : undefined,
+      },
+      include: { tasks: true },
+    })
+    return NextResponse.json(step)
+  } catch (error) {
+    console.error("Roadmap POST error:", error)
+    return NextResponse.json({ error: "Failed to create roadmap step" }, { status: 500 })
+  }
+}
+
