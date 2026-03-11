@@ -5,23 +5,33 @@ import { cn } from "@/lib/utils"
 
 export const dynamic = "force-dynamic"
 
+type DocPage = {
+  id: string
+  title: string
+  slug: string
+  section: string
+  tags: string[]
+  updatedAt: Date
+  progress: "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED"
+}
+
 export default async function DocsPage() {
-  let pages: Awaited<ReturnType<typeof prisma.documentationPage.findMany>> = []
+  let pages: DocPage[] = []
 
   try {
     pages = await prisma.documentationPage.findMany({
       orderBy: [{ section: "asc" }, { order: "asc" }],
-      select: { id: true, title: true, slug: true, section: true, tags: true, updatedAt: true, progress: true } as never,
+      select: { id: true, title: true, slug: true, section: true, tags: true, updatedAt: true, progress: true },
     })
   } catch (error) {
     console.error("DocsPage DB error:", error)
   }
 
-  const grouped = (pages as Array<{ id: string; title: string; slug: string; section: string; tags: string[]; progress: string }>).reduce((acc, page) => {
+  const grouped = pages.reduce((acc, page) => {
     if (!acc[page.section]) acc[page.section] = []
     acc[page.section].push(page)
     return acc
-  }, {} as Record<string, typeof pages>)
+  }, {} as Record<string, DocPage[]>)
 
   const sectionColors: Record<string, string> = {
     "Overview": "text-amber-400",
@@ -85,7 +95,7 @@ export default async function DocsPage() {
                 <div className="h-px flex-1 bg-border" />
               </div>
               <div className="space-y-2">
-                {(sectionPages as Array<{ id: string; title: string; slug: string; section: string; tags: string[]; progress: string }>).map((page) => (
+                {sectionPages.map((page) => (
                   <Link key={page.id} href={`/docs/${page.slug}`}>
                     <div className="flex items-start gap-3 p-4 rounded-xl border border-border bg-card card-hover">
                       <BookOpen className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
