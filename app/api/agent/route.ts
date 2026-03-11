@@ -15,18 +15,16 @@
  */
 
 import { NextResponse } from "next/server"
-import { auth } from "@clerk/nextjs/server"
+import { requireWriteAuth } from "@/lib/api-auth"
 import { runAgent } from "@/lib/agent-engine"
 
 export const maxDuration = 120 // Allow up to 2 min for agentic loops
 
 export async function POST(req: Request) {
-  try {
-    const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+  const auth = await requireWriteAuth()
+  if (!auth.ok) return auth.response
 
+  try {
     const body = await req.json()
     const { message, history = [], provider = "gemini", model = "gemini-2.5-flash" } = body
 

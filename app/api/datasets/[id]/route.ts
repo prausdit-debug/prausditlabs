@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireWriteAuth } from "@/lib/api-auth"
 
 /**
  * GET /api/datasets/[id]
- * Fetch a dataset by ID
+ * Fetch a dataset by ID — open to agents
  */
 export async function GET(
   request: NextRequest,
@@ -40,12 +41,15 @@ export async function GET(
 
 /**
  * DELETE /api/datasets/[id]
- * Delete dataset
+ * Delete dataset — requires admin/developer role
  */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireWriteAuth()
+  if (!auth.ok) return auth.response
+
   try {
     const { id } = await params
 

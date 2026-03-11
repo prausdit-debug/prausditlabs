@@ -1,7 +1,11 @@
-import Link from "next/link"
+"use client"
+
+import { useClerk } from "@clerk/nextjs"
 import { FlaskConical, Lock } from "lucide-react"
 
 export default function AccessDeniedPage() {
+  const { signOut } = useClerk()
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="max-w-md w-full text-center space-y-6">
@@ -22,10 +26,11 @@ export default function AccessDeniedPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground mb-2">Access Denied</h1>
           <p className="text-[14px] text-muted-foreground leading-relaxed">
-            You don&apos;t have permission to access this research platform.
+            You do not have permission to access this dashboard.
           </p>
           <p className="text-[14px] text-muted-foreground mt-3">
-            If you are a developer, the admin will grant access shortly.
+            Only users with <span className="text-amber-400 font-mono text-[13px]">admin</span> or{" "}
+            <span className="text-blue-400 font-mono text-[13px]">developer</span> roles may access this platform.
           </p>
         </div>
 
@@ -36,13 +41,14 @@ export default function AccessDeniedPage() {
           </p>
         </div>
 
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-amber-500 text-black text-[13px] font-semibold hover:bg-amber-400 transition-colors"
+        <button
+          onClick={() => signOut({ redirectUrl: "/sign-in" })}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-zinc-800 border border-border text-foreground text-[13px] font-semibold hover:bg-zinc-700 transition-colors"
         >
-          Return to Dashboard
-        </Link>
+          Sign in with a different account
+        </button>
       </div>
     </div>
   )
 }
+

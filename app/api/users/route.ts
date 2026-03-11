@@ -22,14 +22,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "clerkId and email are required" }, { status: 400 })
     }
 
-    // Check if this is the super admin
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL
+    // Support both spellings of the env variable
+    const superAdminEmail = process.env.SUPPER_ADMIN_EMAIL ?? process.env.SUPER_ADMIN_EMAIL
     const role = superAdminEmail && email === superAdminEmail ? "super_admin" : "user"
 
     const user = await prisma.user.upsert({
       where: { clerkId },
       update: { email, name, imageUrl },
-      create: { clerkId, email, name, imageUrl, role },
+      create: { clerkId, email, name, imageUrl, role: role as "super_admin" | "user" },
     })
 
     return NextResponse.json(user)

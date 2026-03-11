@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireWriteAuth } from "@/lib/api-auth"
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ taskId: string }> }
 ) {
+  const auth = await requireWriteAuth()
+  if (!auth.ok) return auth.response
+
   try {
     const { taskId } = await params
     const { completed } = await req.json()

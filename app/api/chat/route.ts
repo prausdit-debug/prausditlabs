@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { GoogleGenAI } from "@google/genai"
 import { prisma } from "@/lib/prisma"
+import { requireWriteAuth } from "@/lib/api-auth"
 
 const SYSTEM_PROMPT = `You are Prausdit Lab Assistant, an expert AI research assistant helping with the development of Protroit Agent and ProtroitOS.
 
@@ -141,6 +142,9 @@ async function streamOpenRouter(
 }
 
 export async function POST(req: Request) {
+  const auth = await requireWriteAuth()
+  if (!auth.ok) return auth.response
+
   try {
     const { message, history, provider: reqProvider, model: reqModel } = await req.json()
     if (!message?.trim()) return NextResponse.json({ error: "Message is required" }, { status: 400 })

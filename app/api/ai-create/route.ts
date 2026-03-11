@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { GoogleGenAI } from "@google/genai"
+import { requireWriteAuth } from "@/lib/api-auth"
 
 const SCHEMAS: Record<string, string> = {
   document: JSON.stringify({
@@ -34,6 +35,9 @@ const SCHEMAS: Record<string, string> = {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireWriteAuth()
+  if (!auth.ok) return auth.response
+
   try {
     const body = await req.json()
     const { type, title, ...extra } = body

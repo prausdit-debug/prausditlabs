@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireWriteAuth } from "@/lib/api-auth"
 
+// GET — open to agents
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -23,6 +25,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  const auth = await requireWriteAuth()
+  if (!auth.ok) return auth.response
+
   const { slug } = await params
   const body = await req.json()
 
@@ -63,6 +68,9 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  const auth = await requireWriteAuth()
+  if (!auth.ok) return auth.response
+
   const { slug } = await params
 
   await prisma.documentationPage.delete({

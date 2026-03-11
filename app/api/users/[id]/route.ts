@@ -1,10 +1,27 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireWriteAuth } from "@/lib/api-auth"
 
+/**
+ * PATCH /api/users/[id]
+ * Update a user's role or name.
+ * Restricted to super_admin and admin only — developers cannot change roles.
+ */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const writeAuth = await requireWriteAuth()
+  if (!writeAuth.ok) return writeAuth.response
+
+  // Only super_admin and admin can change user roles
+  if (!["super_admin", "admin"].includes(writeAuth.role)) {
+    return NextResponse.json(
+      { error: "Forbidden: only admins can modify user roles" },
+      { status: 403 }
+    )
+  }
+
   try {
     const { id } = await params
     const body = await req.json()
@@ -24,10 +41,25 @@ export async function PATCH(
   }
 }
 
+/**
+ * DELETE /api/users/[id]
+ * Remove a user record.
+ * Restricted to super_admin and admin only.
+ */
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const writeAuth = await requireWriteAuth()
+  if (!writeAuth.ok) return writeAuth.response
+
+  if (!["super_admin", "admin"].includes(writeAuth.role)) {
+    return NextResponse.json(
+      { error: "Forbidden: only admins can delete users" },
+      { status: 403 }
+    )
+  }
+
   try {
     const { id } = await params
     await prisma.user.delete({ where: { id } })
@@ -37,3 +69,4 @@ export async function DELETE(
     return NextResponse.json({ error: "Failed to delete user" }, { status: 500 })
   }
 }
+
