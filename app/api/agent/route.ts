@@ -5,6 +5,10 @@
  * Replaces /api/chat for the main chat widget.
  * /api/chat is kept for backward compatibility.
  *
+ * Auth: Requires a Clerk session. The agent runs with the permissions of the
+ * logged-in user. Super-admin is checked BEFORE the DB so DB failures never
+ * block the super admin.
+ *
  * Stream format (SSE):
  *   data: { type: "status",      text: "🔍 Searching…",   step: N }
  *   data: { type: "tool_call",   tool: "search_internal_docs", text: "…", args: {…}, step: N }
@@ -21,8 +25,10 @@ import { runAgent } from "@/lib/agent-engine"
 export const maxDuration = 120 // Allow up to 2 min for agentic loops
 
 export async function POST(req: Request) {
-  const auth = await requireWriteAuth()
-  if (!auth.ok) return auth.response
+  // requireWriteAuth checks super_admin by email FIRST (no DB needed),
+  // then falls back to DB role lookup for other users.
+  const authResult = await requireWriteAuth()
+  if (!authResult.ok) return authResult.response
 
   try {
     const body = await req.json()
@@ -43,8 +49,9 @@ export async function POST(req: Request) {
       },
     })
   } catch (err) {
-    console.error("Agent route error:", err)
+    console.error("[/api/agent] Route error:", err)
     const msg = err instanceof Error ? err.message : "Internal server error"
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
+

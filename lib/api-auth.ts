@@ -3,14 +3,14 @@
  * ---------------
  * Shared helper for API-level write-protection.
  *
- * ACCESS RULES:
- *   super_admin  → full access (also identified by SUPER_ADMIN_EMAIL env var)
- *   admin        → full access
- *   developer    → full access to CRM data
- *   user         → READ only (GET requests pass through; writes blocked)
- *   unauthenticated agent → GETs pass through; writes blocked
+ * ACCESS RULES (evaluated in order):
+ *   1. SUPER_ADMIN_EMAIL match → always allow, skip DB entirely
+ *   2. DB role === "admin" | "developer" | "super_admin" → allow
+ *   3. DB role === "user" → block writes (GET still passes via middleware)
+ *   4. No DB record → block writes
+ *   5. DB unreachable → block writes (but super_admin still allowed via rule 1)
  *
- * IMPORTANT: GET requests are intentionally NOT protected here.
+ * GET requests are intentionally NOT protected here.
  * AI agents (Gemini, etc.) must be able to read all data freely.
  * Only POST / PATCH / PUT / DELETE are gated.
  */
@@ -21,7 +21,7 @@ import { NextResponse } from "next/server"
 
 export const WRITER_ROLES = new Set(["super_admin", "admin", "developer"])
 
-/** Reads the super-admin email from env, supporting both spellings, trimming whitespace */
+/** Reads the super-admin email from env, supporting both spellings */
 function getSuperAdminEmail(): string | null {
   return (
     process.env.SUPER_ADMIN_EMAIL?.trim() ||
@@ -38,7 +38,8 @@ export type AuthResult =
  * Call at the top of any write handler (POST / PATCH / DELETE).
  * Returns { ok: true, userId, role } on success, or { ok: false, response } to return immediately.
  *
- * Agents calling with no session → 401 on writes (they should use GET to read).
+ * CRITICAL FIX: Super-admin check runs BEFORE any DB query.
+ * This means the super admin always gets through even when the DB is unreachable.
  */
 export async function requireWriteAuth(): Promise<AuthResult> {
   try {
@@ -54,27 +55,68 @@ export async function requireWriteAuth(): Promise<AuthResult> {
       }
     }
 
-    // Look up DB user to get role
-    const user = await prisma.user.findUnique({ where: { clerkId: userId } })
+    // ── Step 1: Check super-admin by email BEFORE touching the database ──
+    const clerkUser = await currentUser()
+    const email = clerkUser?.emailAddresses[0]?.emailAddress ?? ""
 
-    if (!user) {
+    const superAdminEmail = getSuperAdminEmail()
+    const isSuperAdmin =
+      !!superAdminEmail &&
+      !!email &&
+      email.toLowerCase() === superAdminEmail.toLowerCase()
+
+    if (isSuperAdmin) {
+      // Super admin bypasses all DB checks — always allowed
+      return { ok: true, userId, role: "super_admin" }
+    }
+
+    // ── Step 2: For everyone else, look up role in the database ──
+    let dbUser
+    try {
+      dbUser = await prisma.user.findUnique({ where: { clerkId: userId } })
+    } catch (dbErr) {
+      console.error("requireWriteAuth DB error:", dbErr)
       return {
         ok: false,
         response: NextResponse.json(
-          { error: "Unauthorized: user record not found" },
-          { status: 401 }
+          { error: "Database unavailable. Please try again shortly." },
+          { status: 503 }
         ),
       }
     }
 
-    // Get live email from Clerk — correct Clerk v7 API: currentUser().emailAddresses[0].emailAddress
-    const clerkUser = await currentUser()
-    const email = clerkUser?.emailAddresses[0]?.emailAddress ?? user.email
+    if (!dbUser) {
+      // User authenticated with Clerk but no DB record yet.
+      // Auto-create with default "user" role and deny write access.
+      try {
+        if (email) {
+          await prisma.user.create({
+            data: {
+              clerkId: userId,
+              email,
+              name: clerkUser?.fullName ?? clerkUser?.firstName ?? undefined,
+              imageUrl: clerkUser?.imageUrl ?? undefined,
+              role: "user",
+            },
+          })
+        }
+      } catch (createErr) {
+        console.error("requireWriteAuth user create error:", createErr)
+      }
 
-    const superAdminEmail = getSuperAdminEmail()
-    const isSuperAdmin = !!superAdminEmail && email === superAdminEmail
+      return {
+        ok: false,
+        response: NextResponse.json(
+          {
+            error:
+              "Forbidden: your account does not have write access. Contact an admin to upgrade your role.",
+          },
+          { status: 403 }
+        ),
+      }
+    }
 
-    const effectiveRole = isSuperAdmin ? "super_admin" : user.role
+    const effectiveRole = dbUser.role
 
     if (!WRITER_ROLES.has(effectiveRole)) {
       return {

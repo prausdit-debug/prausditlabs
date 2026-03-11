@@ -5,7 +5,7 @@ import { requireWriteAuth } from "@/lib/api-auth"
 /**
  * PATCH /api/users/[id]
  * Update a user's role or name.
- * Restricted to super_admin and admin only — developers cannot change roles.
+ * Restricted to super_admin and admin only.
  */
 export async function PATCH(
   req: NextRequest,
@@ -14,7 +14,6 @@ export async function PATCH(
   const writeAuth = await requireWriteAuth()
   if (!writeAuth.ok) return writeAuth.response
 
-  // Only super_admin and admin can change user roles
   if (!["super_admin", "admin"].includes(writeAuth.role)) {
     return NextResponse.json(
       { error: "Forbidden: only admins can modify user roles" },
@@ -36,7 +35,10 @@ export async function PATCH(
 
     return NextResponse.json(user)
   } catch (error) {
-    console.error("User PATCH error:", error)
+    console.error("[/api/users/[id] PATCH] Error:", {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    })
     return NextResponse.json({ error: "Failed to update user" }, { status: 500 })
   }
 }
@@ -65,8 +67,10 @@ export async function DELETE(
     await prisma.user.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error("User DELETE error:", error)
+    console.error("[/api/users/[id] DELETE] Error:", {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    })
     return NextResponse.json({ error: "Failed to delete user" }, { status: 500 })
   }
 }
-
