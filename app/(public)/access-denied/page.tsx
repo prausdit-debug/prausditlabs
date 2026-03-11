@@ -1,20 +1,10 @@
 "use client"
 
-import { useState } from "react"
 import { useClerk } from "@clerk/nextjs"
-import { useRouter } from "next/navigation"
-import { FlaskConical, Lock, Loader2 } from "lucide-react"
+import { FlaskConical, Lock } from "lucide-react"
 
 export default function AccessDeniedPage() {
   const { signOut } = useClerk()
-  const router = useRouter()
-  const [loading, setLoading] = useState(false)
-
-  const handleSignOut = async () => {
-    setLoading(true)
-    await signOut()
-    router.push("/sign-in")
-  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -52,20 +42,13 @@ export default function AccessDeniedPage() {
         </div>
 
         <button
-          onClick={handleSignOut}
-          disabled={loading}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-zinc-800 border border-border text-foreground text-[13px] font-semibold hover:bg-zinc-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          onClick={() => signOut({ redirectUrl: "/sign-in" })}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-zinc-800 border border-border text-foreground text-[13px] font-semibold hover:bg-zinc-700 transition-colors"
         >
-          {loading ? (
-            <>
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Signing out…
-            </>
-          ) : (
-            "Sign in with a different account"
-          )}
+          Sign in with a different account
         </button>
       </div>
     </div>
   )
 }
+

@@ -3,18 +3,22 @@
 /**
  * AuthGuard
  * ---------
- * Wraps every protected UI page. On mount it calls /api/users/me to get the
- * current user's role from the database and applies the access rules:
+ * Wraps every protected UI page. On mount it calls /api/users/me to:
+ *   1. Auto-upsert the user into the DB (handles first login)
+ *   2. Force-upgrade to super_admin if email matches SUPER_ADMIN_EMAIL env var
+ *   3. Check the role returned and allow or deny access
  *
- *   ALLOW  →  email === SUPPER_ADMIN_EMAIL  (checked server-side in the API)
- *   ALLOW  →  role === "admin" | "developer" | "super_admin"
- *   DENY   →  everything else → sign out → /access-denied
+ * ACCESS RULES (evaluated server-side in /api/users/me):
+ *   ALLOW  →  role === "super_admin" | "admin" | "developer"
+ *   DENY   →  role === "user" or record not found → redirect to /access-denied
  *
- * API routes (/api/*) are never touched by this guard.
+ * NOTE: We do NOT sign-out here on denial. The user can choose to sign in with
+ * a different account from the /access-denied page. This avoids an infinite
+ * sign-out loop if /api/users/me itself has a transient error.
  */
 
 import { useEffect, useState } from "react"
-import { useUser, useClerk } from "@clerk/nextjs"
+import { useUser } from "@clerk/nextjs"
 import { useRouter } from "next/navigation"
 import { Loader2, FlaskConical } from "lucide-react"
 
@@ -22,49 +26,51 @@ const ALLOWED_ROLES = new Set(["super_admin", "admin", "developer"])
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useUser()
-  const { signOut } = useClerk()
   const router = useRouter()
   const [status, setStatus] = useState<"loading" | "allowed" | "denied">("loading")
 
   useEffect(() => {
     if (!isLoaded) return
 
-    // Not signed in — middleware already redirects, but handle edge cases
     if (!isSignedIn) {
       router.replace("/sign-in")
       return
     }
 
-    // Fetch the user's DB record (includes role + super-admin flag)
+    // Call /api/users/me — this will:
+    //   • auto-create the user if they don't exist yet
+    //   • force-upgrade email-matched users to super_admin
+    //   • return the current role
     fetch("/api/users/me")
       .then(async (res) => {
         if (!res.ok) {
-          // User not in DB yet — deny
+          const body = await res.json().catch(() => ({}))
+          console.warn("[AuthGuard] /api/users/me error:", res.status, body)
           return null
         }
         return res.json()
       })
-      .then(async (user) => {
+      .then((user) => {
         if (!user) {
-          await signOut()
+          // API error — redirect to access-denied (user can sign out from there)
           router.replace("/access-denied")
           return
         }
 
-        // Allow if role is permitted
+        console.log("[AuthGuard] user role:", user.role, "email:", user.email)
+
         if (ALLOWED_ROLES.has(user.role)) {
           setStatus("allowed")
         } else {
-          // Unauthorised role — log out and redirect
-          await signOut()
+          // Role not permitted — send to access-denied (sign-out happens there)
           router.replace("/access-denied")
         }
       })
-      .catch(async () => {
-        await signOut()
+      .catch((err) => {
+        console.error("[AuthGuard] fetch error:", err)
         router.replace("/access-denied")
       })
-  }, [isLoaded, isSignedIn, signOut, router])
+  }, [isLoaded, isSignedIn, router])
 
   if (status === "loading") {
     return (
@@ -83,7 +89,6 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   }
 
   if (status === "denied") {
-    // Will redirect — render nothing
     return null
   }
 

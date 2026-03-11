@@ -4,7 +4,7 @@
  * Shared helper for API-level write-protection.
  *
  * ACCESS RULES:
- *   super_admin  → full access (also identified by SUPPER_ADMIN_EMAIL env var)
+ *   super_admin  → full access (also identified by SUPER_ADMIN_EMAIL env var)
  *   admin        → full access
  *   developer    → full access to CRM data
  *   user         → READ only (GET requests pass through; writes blocked)
@@ -15,11 +15,20 @@
  * Only POST / PATCH / PUT / DELETE are gated.
  */
 
-import { auth } from "@clerk/nextjs/server"
+import { auth, currentUser } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
 
 export const WRITER_ROLES = new Set(["super_admin", "admin", "developer"])
+
+/** Reads the super-admin email from env, supporting both spellings, trimming whitespace */
+function getSuperAdminEmail(): string | null {
+  return (
+    process.env.SUPER_ADMIN_EMAIL?.trim() ||
+    process.env.SUPPER_ADMIN_EMAIL?.trim() ||
+    null
+  )
+}
 
 export type AuthResult =
   | { ok: true; userId: string; role: string }
@@ -58,9 +67,12 @@ export async function requireWriteAuth(): Promise<AuthResult> {
       }
     }
 
-    // Always honour SUPPER_ADMIN_EMAIL even if DB role not yet updated
-    const superAdminEmail = process.env.SUPPER_ADMIN_EMAIL ?? process.env.SUPER_ADMIN_EMAIL
-    const isSuperAdmin = superAdminEmail && user.email === superAdminEmail
+    // Get live email from Clerk — correct Clerk v7 API: currentUser().emailAddresses[0].emailAddress
+    const clerkUser = await currentUser()
+    const email = clerkUser?.emailAddresses[0]?.emailAddress ?? user.email
+
+    const superAdminEmail = getSuperAdminEmail()
+    const isSuperAdmin = !!superAdminEmail && email === superAdminEmail
 
     const effectiveRole = isSuperAdmin ? "super_admin" : user.role
 

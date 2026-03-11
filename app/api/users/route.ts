@@ -22,8 +22,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "clerkId and email are required" }, { status: 400 })
     }
 
-    // Support both spellings of the env variable
-    const superAdminEmail = process.env.SUPPER_ADMIN_EMAIL ?? process.env.SUPER_ADMIN_EMAIL
+    // Support both spellings of the env variable, trim whitespace
+    const superAdminEmail =
+      process.env.SUPER_ADMIN_EMAIL?.trim() ||
+      process.env.SUPPER_ADMIN_EMAIL?.trim() ||
+      null
     const role = superAdminEmail && email === superAdminEmail ? "super_admin" : "user"
 
     const user = await prisma.user.upsert({
