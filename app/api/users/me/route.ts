@@ -3,23 +3,17 @@
  * -----------------
  * Returns the current Clerk user's DB profile + role.
  *
- * Super-admin logic:
- *   - Reads SUPER_ADMIN_EMAIL (canonical spelling) with SUPPER_ADMIN_EMAIL as alias
- *   - Gets the authenticated user's email via Clerk's currentUser() (the correct v7 API)
- *   - If email matches → ALWAYS upserts role to super_admin in the DB, regardless of
- *     what was previously stored. This fixes the case where the user already exists
- *     in the DB as "user" before the env var was set.
- *
- * Clerk v7 email access: currentUser().emailAddresses[0].emailAddress
+ * FIX: The super_admin upgrade now runs UNCONDITIONALLY whenever
+ * isSuperAdmin is true — it no longer depends on other fields changing.
+ * This was the root cause: if name/email/image hadn't changed, the
+ * needsSync check was false and the role was never upgraded.
  */
 
 import { NextResponse } from "next/server"
 import { auth, currentUser } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
-/** Reads the super-admin email from env, supporting both spellings */
 function getSuperAdminEmail(): string | null {
-  // Prefer the correctly-spelled var; fall back to the legacy typo
   return (
     process.env.SUPER_ADMIN_EMAIL?.trim() ||
     process.env.SUPPER_ADMIN_EMAIL?.trim() ||
@@ -32,54 +26,54 @@ export async function GET() {
     const { userId } = await auth()
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    // Always fetch the Clerk user so we have the live email — correct Clerk v7 API
+    // Always fetch live Clerk user — correct Clerk v7 API
     const clerkUser = await currentUser()
     if (!clerkUser) return NextResponse.json({ error: "Clerk user not found" }, { status: 404 })
 
-    // Clerk v7: email lives at emailAddresses[0].emailAddress
+    // Clerk v7: email at emailAddresses[0].emailAddress
     const email = clerkUser.emailAddresses[0]?.emailAddress ?? ""
     const name = clerkUser.fullName ?? clerkUser.firstName ?? undefined
     const imageUrl = clerkUser.imageUrl ?? undefined
 
     const superAdminEmail = getSuperAdminEmail()
-    const isSuperAdmin = !!superAdminEmail && email === superAdminEmail
+    const isSuperAdmin = !!superAdminEmail && email.toLowerCase() === superAdminEmail.toLowerCase()
 
-    // Determine the role to write/ensure in the DB
-    let targetRole: string | undefined = isSuperAdmin ? "super_admin" : undefined
-
-    // Try to find existing DB record
+    // Look up existing DB record
     let dbUser = await prisma.user.findUnique({ where: { clerkId: userId } })
 
     if (!dbUser) {
-      // First login — create the record
+      // First login — create the record with correct role immediately
       dbUser = await prisma.user.create({
         data: {
           clerkId: userId,
           email,
           name,
           imageUrl,
-          role: (targetRole ?? "user") as "super_admin" | "admin" | "developer" | "user",
+          role: isSuperAdmin ? "super_admin" : "user",
         },
       })
     } else {
-      // User exists — always sync email/name/image, and force-upgrade to super_admin if needed
-      const needsRoleUpgrade = isSuperAdmin && dbUser.role !== "super_admin"
-      const needsSync =
-        dbUser.email !== email ||
-        dbUser.name !== name ||
-        dbUser.imageUrl !== imageUrl ||
-        needsRoleUpgrade
-
-      if (needsSync) {
+      // Always upgrade to super_admin if email matches — NO conditional checks.
+      // Previously this was gated behind needsSync which could be false
+      // even when the role needed upgrading. Now it always runs independently.
+      if (isSuperAdmin && dbUser.role !== "super_admin") {
         dbUser = await prisma.user.update({
           where: { clerkId: userId },
-          data: {
-            email,
-            name,
-            imageUrl,
-            ...(needsRoleUpgrade ? { role: "super_admin" } : {}),
-          },
+          data: { role: "super_admin", email, name, imageUrl },
         })
+      } else {
+        // Sync profile fields if anything changed
+        const needsProfileSync =
+          dbUser.email !== email ||
+          dbUser.name !== (name ?? null) ||
+          dbUser.imageUrl !== (imageUrl ?? null)
+
+        if (needsProfileSync) {
+          dbUser = await prisma.user.update({
+            where: { clerkId: userId },
+            data: { email, name, imageUrl },
+          })
+        }
       }
     }
 

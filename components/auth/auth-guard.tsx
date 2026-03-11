@@ -3,18 +3,14 @@
 /**
  * AuthGuard
  * ---------
- * Wraps every protected UI page. On mount it calls /api/users/me to:
- *   1. Auto-upsert the user into the DB (handles first login)
- *   2. Force-upgrade to super_admin if email matches SUPER_ADMIN_EMAIL env var
- *   3. Check the role returned and allow or deny access
+ * Wraps every protected UI page.
  *
- * ACCESS RULES (evaluated server-side in /api/users/me):
- *   ALLOW  →  role === "super_admin" | "admin" | "developer"
- *   DENY   →  role === "user" or record not found → redirect to /access-denied
+ * ACCESS RULES:
+ *   ALLOW → role === "super_admin" | "admin" | "developer"
+ *   DENY  → role === "user" → redirect to /access-denied
  *
- * NOTE: We do NOT sign-out here on denial. The user can choose to sign in with
- * a different account from the /access-denied page. This avoids an infinite
- * sign-out loop if /api/users/me itself has a transient error.
+ * /api/users/me handles the super_admin upgrade automatically on every call,
+ * so even if the DB had the wrong role it gets fixed before this check runs.
  */
 
 import { useEffect, useState } from "react"
@@ -37,32 +33,29 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       return
     }
 
-    // Call /api/users/me — this will:
-    //   • auto-create the user if they don't exist yet
-    //   • force-upgrade email-matched users to super_admin
-    //   • return the current role
     fetch("/api/users/me")
       .then(async (res) => {
         if (!res.ok) {
           const body = await res.json().catch(() => ({}))
-          console.warn("[AuthGuard] /api/users/me error:", res.status, body)
+          console.error("[AuthGuard] /api/users/me failed:", res.status, body)
           return null
         }
         return res.json()
       })
       .then((user) => {
         if (!user) {
-          // API error — redirect to access-denied (user can sign out from there)
           router.replace("/access-denied")
           return
         }
 
-        console.log("[AuthGuard] user role:", user.role, "email:", user.email)
+        // Log clearly so you can see in browser DevTools > Console
+        console.log(
+          `[AuthGuard] email=${user.email} | role=${user.role} | allowed=${ALLOWED_ROLES.has(user.role)}`
+        )
 
         if (ALLOWED_ROLES.has(user.role)) {
           setStatus("allowed")
         } else {
-          // Role not permitted — send to access-denied (sign-out happens there)
           router.replace("/access-denied")
         }
       })
@@ -88,9 +81,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     )
   }
 
-  if (status === "denied") {
-    return null
-  }
+  if (status === "denied") return null
 
   return <>{children}</>
 }
