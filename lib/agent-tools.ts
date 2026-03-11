@@ -432,7 +432,7 @@ export const createExperiment = tool({
     learningRate: z.number().optional(),
     epochs: z.number().optional(),
     datasetId: z.string().optional().describe("ID of the dataset to use"),
-    config: z.record(z.unknown()).optional().describe("Additional config as JSON"),
+    config: z.record(z.string(), z.unknown()).optional().describe("Additional config as JSON"),
   }),
   execute: async ({ name, baseModel, description, method, loraRank, loraAlpha, batchSize, learningRate, epochs, datasetId, config }) => {
     try {
