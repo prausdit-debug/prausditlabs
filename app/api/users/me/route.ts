@@ -1,12 +1,13 @@
 /**
  * GET /api/users/me
- * -----------------
- * Returns the current Clerk user's DB profile + role.
  *
- * FIX: The super_admin upgrade now runs UNCONDITIONALLY whenever
- * isSuperAdmin is true — it no longer depends on other fields changing.
- * This was the root cause: if name/email/image hadn't changed, the
- * needsSync check was false and the role was never upgraded.
+ * KEY FIX: If the DB is unreachable (Aiven SSL / connection issues),
+ * we still return a valid response for super_admin based purely on
+ * the Clerk email match. This means the super_admin ALWAYS gets in
+ * even when the database is having problems.
+ *
+ * For normal users: DB is required. If DB fails, they get 503.
+ * For super_admin: DB failure is ignored — email match is enough.
  */
 
 import { NextResponse } from "next/server"
@@ -24,60 +25,82 @@ function getSuperAdminEmail(): string | null {
 export async function GET() {
   try {
     const { userId } = await auth()
-    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
 
-    // Always fetch live Clerk user — correct Clerk v7 API
     const clerkUser = await currentUser()
-    if (!clerkUser) return NextResponse.json({ error: "Clerk user not found" }, { status: 404 })
+    if (!clerkUser) {
+      return NextResponse.json({ error: "Clerk user not found" }, { status: 404 })
+    }
 
-    // Clerk v7: email at emailAddresses[0].emailAddress
     const email = clerkUser.emailAddresses[0]?.emailAddress ?? ""
     const name = clerkUser.fullName ?? clerkUser.firstName ?? undefined
     const imageUrl = clerkUser.imageUrl ?? undefined
 
     const superAdminEmail = getSuperAdminEmail()
-    const isSuperAdmin = !!superAdminEmail && email.toLowerCase() === superAdminEmail.toLowerCase()
+    const isSuperAdmin =
+      !!superAdminEmail && email.toLowerCase() === superAdminEmail.toLowerCase()
 
-    // Look up existing DB record
-    let dbUser = await prisma.user.findUnique({ where: { clerkId: userId } })
+    try {
+      let dbUser = await prisma.user.findUnique({ where: { clerkId: userId } })
 
-    if (!dbUser) {
-      // First login — create the record with correct role immediately
-      dbUser = await prisma.user.create({
-        data: {
-          clerkId: userId,
-          email,
-          name,
-          imageUrl,
-          role: isSuperAdmin ? "super_admin" : "user",
-        },
-      })
-    } else {
-      // Always upgrade to super_admin if email matches — NO conditional checks.
-      // Previously this was gated behind needsSync which could be false
-      // even when the role needed upgrading. Now it always runs independently.
-      if (isSuperAdmin && dbUser.role !== "super_admin") {
-        dbUser = await prisma.user.update({
-          where: { clerkId: userId },
-          data: { role: "super_admin", email, name, imageUrl },
+      if (!dbUser) {
+        dbUser = await prisma.user.create({
+          data: {
+            clerkId: userId,
+            email,
+            name,
+            imageUrl,
+            role: isSuperAdmin ? "super_admin" : "user",
+          },
         })
       } else {
-        // Sync profile fields if anything changed
-        const needsProfileSync =
-          dbUser.email !== email ||
-          dbUser.name !== (name ?? null) ||
-          dbUser.imageUrl !== (imageUrl ?? null)
-
-        if (needsProfileSync) {
+        if (isSuperAdmin && dbUser.role !== "super_admin") {
           dbUser = await prisma.user.update({
             where: { clerkId: userId },
-            data: { email, name, imageUrl },
+            data: { role: "super_admin", email, name, imageUrl },
           })
+        } else {
+          const needsSync =
+            dbUser.email !== email ||
+            dbUser.name !== (name ?? null) ||
+            dbUser.imageUrl !== (imageUrl ?? null)
+
+          if (needsSync) {
+            dbUser = await prisma.user.update({
+              where: { clerkId: userId },
+              data: { email, name, imageUrl },
+            })
+          }
         }
       }
+
+      return NextResponse.json(dbUser)
+
+    } catch (dbErr) {
+      console.error("Users/me DB error:", dbErr)
+
+      if (isSuperAdmin) {
+        console.warn("DB unavailable — granting super_admin access via email fallback")
+        return NextResponse.json({
+          id: "super_admin_fallback",
+          clerkId: userId,
+          email,
+          name: name ?? null,
+          imageUrl: imageUrl ?? null,
+          role: "super_admin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+      }
+
+      return NextResponse.json(
+        { error: "Database unavailable. Please try again shortly." },
+        { status: 503 }
+      )
     }
 
-    return NextResponse.json(dbUser)
   } catch (err) {
     console.error("Users/me error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
