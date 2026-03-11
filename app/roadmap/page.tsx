@@ -1,4 +1,5 @@
 "use client"
+import { Skeleton } from "@/components/ui/skeleton"
 
 import { useState, useEffect } from "react"
 import { CheckCircle2, Clock, Circle, Plus, Edit3, ChevronDown, ChevronRight, Check, X, Loader2 } from "lucide-react"
@@ -61,8 +62,20 @@ export default function RoadmapPage() {
   const progressPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="w-6 h-6 text-amber-400 animate-spin" />
+    <div className="space-y-4">
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className="rounded-xl border border-border p-5 space-y-3">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-8 w-8 rounded-full" />
+            <div className="space-y-1.5 flex-1">
+              <Skeleton className="h-4 w-2/5" />
+              <Skeleton className="h-3 w-3/5" />
+            </div>
+            <Skeleton className="h-5 w-24" />
+          </div>
+          <Skeleton className="h-2 w-full rounded-full" />
+        </div>
+      ))}
     </div>
   )
 

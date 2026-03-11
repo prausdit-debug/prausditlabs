@@ -18,21 +18,21 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className="bg-background text-foreground antialiased">
         <div className="flex h-screen overflow-hidden bg-grid">
-          {/* Sidebar */}
+          {/* Sidebar — desktop always visible, mobile drawer */}
           <Sidebar />
 
-          {/* Main content */}
+          {/* Main content area */}
           <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
             <Header />
             <main className="flex-1 overflow-y-auto">
-              <div className="p-6 max-w-[1400px] mx-auto">
+              <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
                 {children}
               </div>
             </main>
           </div>
         </div>
 
-        {/* Floating AI Chatbot */}
+        {/* Floating AI Chatbot — overlays entire app */}
         <ChatbotWidget />
       </body>
     </html>

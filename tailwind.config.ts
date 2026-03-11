@@ -19,9 +19,9 @@ const config = {
     },
     extend: {
       fontFamily: {
-        sans: ["var(--font-geist-sans)", "system-ui", "sans-serif"],
-        mono: ["var(--font-geist-mono)", "Fira Code", "monospace"],
-        display: ["var(--font-display)", "system-ui", "sans-serif"],
+        sans: ["DM Sans", "system-ui", "sans-serif"],
+        mono: ["Space Mono", "Fira Code", "monospace"],
+        display: ["DM Sans", "system-ui", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",

@@ -6,8 +6,8 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  // Required for Prisma to work correctly on Vercel (serverless)
-  serverExternalPackages: ['@prisma/client', 'prisma'],
+  // Prisma requires these packages to be bundled server-side (Vercel serverless)
+  serverExternalPackages: ["@prisma/client", "prisma"],
 }
 
 module.exports = nextConfig

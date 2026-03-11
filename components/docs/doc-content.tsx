@@ -13,10 +13,15 @@ export function DocContent({ content }: DocContentProps) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          code({ node, className, children, ...props }) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          code({ className, children, ...props }: any) {
             const isInline = !className
             if (isInline) {
-              return <code className={className} {...props}>{children}</code>
+              return (
+                <code className={className} {...props}>
+                  {children}
+                </code>
+              )
             }
             return (
               <pre>

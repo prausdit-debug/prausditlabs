@@ -1,4 +1,5 @@
 "use client"
+import { Skeleton } from "@/components/ui/skeleton"
 
 import { useState, useEffect } from "react"
 import { StickyNote, Plus, Pin, Tag, Loader2, Edit3, Trash2, Save, X } from "lucide-react"
@@ -83,8 +84,19 @@ export default function NotesPage() {
   const previewNote = notes.find(n => n.id === preview)
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="w-6 h-6 text-amber-400 animate-spin" />
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      {[1, 2, 3, 4, 5, 6].map((i) => (
+        <div key={i} className="rounded-xl border border-border p-4 space-y-3">
+          <Skeleton className="h-5 w-3/4" />
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-2/3" />
+          <Skeleton className="h-3 w-1/2" />
+          <div className="flex gap-2 pt-1">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-4 w-20" />
+          </div>
+        </div>
+      ))}
     </div>
   )
 

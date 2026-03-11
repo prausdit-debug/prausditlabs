@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { GoogleGenAI } from "@google/genai"
 import { prisma } from "@/lib/prisma"
 
 const SYSTEM_PROMPT = `You are PyCode-SLM Lab Assistant, an expert AI research assistant helping with the development of a Python-specialized Small Language Model (SLM).
@@ -29,127 +30,100 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 })
     }
 
-    const apiKey = process.env.GOOGLE_GEMINI_API_KEY
+    // Support both GOOGLE_API_KEY and GOOGLE_GEMINI_API_KEY env var names
+    const apiKey = process.env.GOOGLE_API_KEY || process.env.GOOGLE_GEMINI_API_KEY
     if (!apiKey) {
-      return NextResponse.json({ error: "GOOGLE_GEMINI_API_KEY not configured" }, { status: 500 })
+      return NextResponse.json(
+        { error: "GOOGLE_API_KEY not configured. Set it in your environment variables." },
+        { status: 500 }
+      )
     }
+
+    // Initialize Google GenAI SDK v1
+    const ai = new GoogleGenAI({ apiKey })
 
     // Fetch relevant docs from DB as context
     let contextDocs = ""
     try {
+      const keywords = message.split(" ").slice(0, 5)
       const docs = await prisma.documentationPage.findMany({
         where: {
           OR: [
-            { content: { contains: message.split(" ").slice(0, 5).join(" "), mode: "insensitive" } },
-            { title: { contains: message.split(" ")[0], mode: "insensitive" } },
-          ]
+            { content: { contains: keywords.join(" "), mode: "insensitive" } },
+            { title: { contains: keywords[0], mode: "insensitive" } },
+          ],
         },
         take: 2,
-        select: { title: true, content: true }
+        select: { title: true, content: true },
       })
 
       if (docs.length > 0) {
-        contextDocs = `\n\n## Relevant Documentation Context\n\n` +
-          docs.map(d => `### ${d.title}\n${d.content.substring(0, 1500)}`).join("\n\n")
+        contextDocs =
+          `\n\n## Relevant Documentation Context\n\n` +
+          docs.map((d) => `### ${d.title}\n${d.content.substring(0, 1500)}`).join("\n\n")
       }
     } catch {
-      // Silently ignore if DB not available
+      // Silently ignore DB errors — chat still works without context
     }
 
-    // Build conversation for Gemini
-    const contents = []
+    // Build conversation history in Gemini SDK format
+    const contents: Array<{ role: string; parts: Array<{ text: string }> }> = []
 
-    // Add history
     if (history && Array.isArray(history)) {
-      for (const msg of history.slice(-10)) { // Last 10 messages
+      for (const msg of history.slice(-10)) {
         contents.push({
           role: msg.role === "assistant" ? "model" : "user",
-          parts: [{ text: msg.content }]
+          parts: [{ text: msg.content as string }],
         })
       }
     }
 
-    // Add current message with context
-    const userMessage = contextDocs
-      ? `${message}\n\n${contextDocs}`
-      : message
-
+    // Append current user message (with optional doc context)
+    const userMessage = contextDocs ? `${message}\n\n${contextDocs}` : message
     contents.push({ role: "user", parts: [{ text: userMessage }] })
 
-    // Call Gemini API
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:streamGenerateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents,
-          generationConfig: {
-            maxOutputTokens: 2048,
-            temperature: 0.7,
-            topP: 0.9,
-          }
-        })
-      }
-    )
+    // Stream from Gemini 2.5-flash via SDK
+    const streamResult = await ai.models.generateContentStream({
+      model: "gemini-2.5-flash",
+      config: {
+        systemInstruction: SYSTEM_PROMPT,
+        maxOutputTokens: 2048,
+        temperature: 0.7,
+        topP: 0.9,
+      },
+      contents,
+    })
 
-    if (!geminiResponse.ok) {
-      const err = await geminiResponse.text()
-      console.error("Gemini error:", err)
-      return NextResponse.json({ error: "Failed to reach AI" }, { status: 500 })
-    }
-
-    // Stream the response
     const encoder = new TextEncoder()
     const readable = new ReadableStream({
       async start(controller) {
-        const reader = geminiResponse.body?.getReader()
-        if (!reader) { controller.close(); return }
-
-        let buffer = ""
         try {
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-
-            buffer += new TextDecoder().decode(value)
-
-            // Parse streaming JSON chunks
-            const lines = buffer.split("\n")
-            buffer = lines.pop() ?? ""
-
-            for (const line of lines) {
-              const trimmed = line.trim()
-              if (!trimmed || trimmed === "[" || trimmed === "]" || trimmed === ",") continue
-
-              try {
-                const cleanLine = trimmed.replace(/^,/, "")
-                const parsed = JSON.parse(cleanLine)
-                const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text
-                if (text) {
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
-                }
-              } catch {
-                // Skip unparseable chunks
-              }
+          for await (const chunk of streamResult) {
+            const text = chunk.text
+            if (text) {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ text })}\n\n`)
+              )
             }
           }
         } catch (err) {
-          console.error("Stream error:", err)
+          console.error("Gemini stream error:", err)
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ error: "Stream interrupted" })}\n\n`)
+          )
         } finally {
           controller.enqueue(encoder.encode("data: [DONE]\n\n"))
           controller.close()
         }
-      }
+      },
     })
 
     return new Response(readable, {
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-      }
+        Connection: "keep-alive",
+      },
     })
   } catch (err) {
     console.error("Chat API error:", err)

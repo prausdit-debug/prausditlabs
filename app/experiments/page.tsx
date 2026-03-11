@@ -1,4 +1,5 @@
 "use client"
+import { Skeleton } from "@/components/ui/skeleton"
 
 import { useState, useEffect } from "react"
 import { FlaskConical, Plus, ChevronDown, ChevronRight, Loader2, TrendingDown } from "lucide-react"
@@ -53,8 +54,21 @@ export default function ExperimentsPage() {
   }
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="w-6 h-6 text-amber-400 animate-spin" />
+    <div className="space-y-4">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="rounded-xl border border-border p-4 space-y-3">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-9 w-9 rounded-lg" />
+            <div className="space-y-1.5 flex-1">
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-3 w-1/2" />
+            </div>
+            <Skeleton className="h-5 w-20" />
+          </div>
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-4/5" />
+        </div>
+      ))}
     </div>
   )
 
@@ -121,6 +135,17 @@ export default function ExperimentsPage() {
 
       {/* Experiment list */}
       <div className="space-y-3">
+        {experiments.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-center rounded-xl border border-border bg-card">
+            <div className="w-12 h-12 rounded-full bg-muted border border-border flex items-center justify-center mb-3">
+              <FlaskConical className="w-5 h-5 text-muted-foreground" />
+            </div>
+            <p className="text-[14px] font-medium text-foreground mb-1">No experiments yet</p>
+            <p className="text-[12px] text-muted-foreground">
+              Create your first experiment using the button above.
+            </p>
+          </div>
+        )}
         {experiments.map(exp => {
           const isExpanded = expanded === exp.id
           const chartData = exp.logs

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Database, Plus, ExternalLink, Tag, Loader2, Search } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 import { cn, formatBytes, formatNumber, getStatusColor } from "@/lib/utils"
 
 interface Dataset {
@@ -66,8 +67,24 @@ export default function DatasetsPage() {
   }
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="w-6 h-6 text-amber-400 animate-spin" />
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-8 w-64" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <div key={i} className="rounded-xl border border-border p-4 space-y-3">
+            <Skeleton className="h-5 w-3/4" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-2/3" />
+            <div className="flex gap-2 pt-1">
+              <Skeleton className="h-5 w-16" />
+              <Skeleton className="h-5 w-20" />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 
@@ -189,6 +206,21 @@ export default function DatasetsPage() {
 
       {/* Dataset cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {filtered.length === 0 && !loading && (
+          <div className="col-span-full flex flex-col items-center justify-center py-16 text-center">
+            <div className="w-12 h-12 rounded-full bg-muted border border-border flex items-center justify-center mb-3">
+              <Database className="w-5 h-5 text-muted-foreground" />
+            </div>
+            <p className="text-[14px] font-medium text-foreground mb-1">
+              {search || filter !== "ALL" ? "No datasets match your filters" : "No datasets yet"}
+            </p>
+            <p className="text-[12px] text-muted-foreground">
+              {search || filter !== "ALL"
+                ? "Try adjusting your search or filter."
+                : "Add your first dataset using the button above."}
+            </p>
+          </div>
+        )}
         {filtered.map(dataset => (
           <div key={dataset.id} className="rounded-xl border border-border bg-card p-5 card-hover">
             <div className="flex items-start justify-between gap-3 mb-3">
