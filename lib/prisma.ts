@@ -1,18 +1,23 @@
 /**
  * lib/prisma.ts
  * -------------
- * Singleton Prisma client for Vercel serverless environments.
+ * Singleton Prisma Client for Vercel serverless environments.
+ * Prisma ORM v7 — imports from generated output path, NOT @prisma/client.
  *
- * Connection string priority:
- *   1. POSTGRES_PRISMA_URL  — Vercel Postgres / Supabase pooled URL
- *   2. POSTGRES_URL         — Vercel Postgres direct URL
- *   3. DATABASE_URL         — generic fallback (custom / Supabase / Aiven)
+ * Connection string priority (runtime):
+ *   1. POSTGRES_PRISMA_URL  — Vercel Postgres / Supabase pooled URL (recommended)
+ *   2. POSTGRES_URL         — Vercel Postgres alias
+ *   3. DATABASE_URL         — direct connection fallback
  *
- * SSL: rejectUnauthorized:false accepts self-signed certs (Supabase, Aiven).
- * max:1 prevents connection pool exhaustion on Vercel serverless.
+ * SSL: rejectUnauthorized:false accepts self-signed certs (Supabase, Aiven, Neon).
+ * max:1 limits connections per serverless function instance.
+ *
+ * Note: prisma.config.ts handles the URL for CLI commands (migrations).
+ *       This file handles the URL for runtime queries.
  */
 
-import { PrismaClient } from "@prisma/client"
+// v7: Import from generated output path (defined by `output` in schema.prisma generator)
+import { PrismaClient } from "../generated/prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 
 function getConnectionString(): string {
@@ -28,7 +33,7 @@ function getConnectionString(): string {
   }
 
   // Inject sslmode=no-verify if no SSL param is present.
-  // This resolves "self-signed certificate in certificate chain" on Supabase/Aiven.
+  // Resolves "self-signed certificate in certificate chain" on Supabase/Aiven/Neon.
   if (!url.includes("sslmode=") && !url.includes("ssl=")) {
     const sep = url.includes("?") ? "&" : "?"
     return `${url}${sep}sslmode=no-verify`
@@ -40,7 +45,9 @@ function getConnectionString(): string {
 function createPrismaClient(): PrismaClient {
   const adapter = new PrismaPg({
     connectionString: getConnectionString(),
+    // Accept self-signed / chain certificates (Supabase pooler, Aiven, Neon)
     ssl: { rejectUnauthorized: false },
+    // One connection per serverless function instance — prevents pool exhaustion
     max: 1,
   })
 

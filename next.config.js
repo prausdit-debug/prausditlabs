@@ -7,9 +7,9 @@ const nextConfig = {
     ignoreBuildErrors: false,
   },
   // Prisma v7 uses @prisma/adapter-pg (pure JS driver adapter).
-  // Exclude native pg bindings that aren't available in Vercel's serverless runtime.
-  serverExternalPackages: ["pg-native", "@prisma/adapter-pg", "pg"],
+  // pg and @prisma/adapter-pg must be treated as server-external to prevent
+  // Next.js from bundling native Node.js bindings unavailable in serverless.
+  serverExternalPackages: ["pg", "pg-native", "@prisma/adapter-pg"],
 }
 
 module.exports = nextConfig
-
