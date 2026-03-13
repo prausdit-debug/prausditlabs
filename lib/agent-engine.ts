@@ -279,20 +279,20 @@ export function runAgent(options: AgentOptions): ReadableStream<Uint8Array> {
                 type: "tool_call",
                 tool: chunk.toolName,
                 text: label,
-                args: chunk.args,
+                args: chunk.input,
                 step: stepNum,
               }))
             }
 
             if (chunk.type === "tool-result") {
-              const resultPreview = typeof chunk.result === "object"
-                ? JSON.stringify(chunk.result).slice(0, 200)
-                : String(chunk.result ?? "").slice(0, 200)
+              const resultPreview = typeof chunk.output === "object"
+                ? JSON.stringify(chunk.output).slice(0, 200)
+                : String(chunk.output ?? "").slice(0, 200)
               controller.enqueue(evt({
                 type: "tool_result",
                 tool: chunk.toolName,
                 text: `${TOOL_LABELS[chunk.toolName] || chunk.toolName} complete`,
-                result: chunk.result,
+                result: chunk.output,
                 resultPreview,
                 step: stepNum,
               }))
