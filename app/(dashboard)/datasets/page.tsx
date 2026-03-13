@@ -128,23 +128,23 @@ export default function DatasetsPage() {
       </div>
 
       {/* Search & filter */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 flex-1 max-w-sm px-3 py-2 rounded-lg border border-border bg-muted">
-          <Search className="w-3.5 h-3.5 text-muted-foreground" />
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <div className="flex items-center gap-2 flex-1 sm:max-w-sm px-3 py-2 rounded-lg border border-border bg-muted">
+          <Search className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search datasets…"
-            className="bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground flex-1"
+            placeholder="Search datasets..."
+            className="bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground flex-1 min-w-0"
           />
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
           {["ALL", "RAW", "CLEANING", "CLEANED", "FORMATTED", "READY"].map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
               className={cn(
-                "px-2.5 py-1.5 rounded-lg text-[12px] font-mono border transition-colors",
+                "px-2 sm:px-2.5 py-1.5 rounded-lg text-[11px] sm:text-[12px] font-mono border transition-colors whitespace-nowrap flex-shrink-0",
                 filter === f ? "bg-amber-500/10 text-amber-400 border-amber-500/30" : "border-border text-muted-foreground hover:text-foreground"
               )}
             >

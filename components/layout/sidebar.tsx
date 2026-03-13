@@ -9,11 +9,12 @@ import { useCurrentUser } from "@/components/auth/auth-guard"
 import {
   LayoutDashboard, Map, BookOpen, Database, FlaskConical,
   Package, StickyNote, ChevronRight, Activity, Users,
-  Menu, X, Settings, Shield,
+  Menu, X, Settings, Shield, MessageSquare,
 } from "lucide-react"
 
 const NAV_ITEMS = [
   { label: "Overview",       href: "/",           icon: LayoutDashboard, minRole: "developer" },
+  { label: "AI Chat",        href: "/chat",       icon: MessageSquare,   minRole: "developer" },
   { label: "Roadmap",        href: "/roadmap",    icon: Map,             minRole: "developer" },
   { label: "Documentation",  href: "/docs",       icon: BookOpen,        minRole: "developer" },
   { label: "Datasets",       href: "/datasets",   icon: Database,        minRole: "developer" },
