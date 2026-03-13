@@ -89,19 +89,20 @@ export default function RoadmapPage() {
         <div className="flex items-center gap-2 text-[12px] text-muted-foreground font-mono mb-2">
           <span className="text-amber-500">▸</span> DEVELOPMENT ROADMAP
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-foreground">Roadmap Tracker</h1>
-            <p className="text-[14px] text-muted-foreground mt-1">Development roadmap for Protroit Agent and ProtroitOS</p>
+            <h1 className="text-xl sm:text-2xl font-semibold text-foreground">Roadmap Tracker</h1>
+            <p className="text-[13px] sm:text-[14px] text-muted-foreground mt-1">Development roadmap for Protroit Agent and ProtroitOS</p>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="text-right">
-              <p className="text-3xl font-bold font-mono text-amber-400">{progressPct}%</p>
-              <p className="text-[12px] text-muted-foreground">{completedTasks}/{totalTasks} tasks</p>
+          <div className="flex items-center gap-3">
+            <div className="text-left sm:text-right">
+              <p className="text-2xl sm:text-3xl font-bold font-mono text-amber-400">{progressPct}%</p>
+              <p className="text-[11px] sm:text-[12px] text-muted-foreground">{completedTasks}/{totalTasks} tasks</p>
             </div>
-            <Link href="/roadmap/create" className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500 text-black text-[13px] font-semibold hover:bg-amber-400 transition-colors ml-2">
+            <Link href="/roadmap/create" className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500 text-black text-[12px] sm:text-[13px] font-semibold hover:bg-amber-400 transition-colors">
               <Plus className="w-4 h-4" />
-              Add Step
+              <span className="hidden xs:inline">Add Step</span>
+              <span className="xs:hidden">Add</span>
             </Link>
           </div>
         </div>
