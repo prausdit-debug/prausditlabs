@@ -1,0 +1,50 @@
+# ── Dependencies ────────────────────────────────────────────────────
+node_modules/
+.npm/
+
+# ── Next.js build output ────────────────────────────────────────────
+.next/
+out/
+build/
+
+# ── Prisma generated client (auto-generated at build time) ──────────
+generated/
+
+# ── Environment variables ────────────────────────────────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# Keep .env.example — it's the template, safe to commit
+
+# ── Debug logs ──────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+
+# ── OS / Editor ─────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── TypeScript ──────────────────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Vercel ──────────────────────────────────────────────────────────
+.vercel
+
+# ── Misc ────────────────────────────────────────────────────────────
+.turbo/
