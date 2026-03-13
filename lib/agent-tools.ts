@@ -1,11 +1,11 @@
 /**
- * Prausdit Research Lab — OpenClaw-Compatible Agent Tools (v6)
+ * Prausdit Research Lab — Agent Tools (AI SDK v6)
  *
  * All tools execute through Prisma only — no shell access, no arbitrary
  * filesystem access. Security boundary enforced here.
  *
- * Tool registry follows OpenClaw's tool schema pattern:
- *   - Typed parameters (Zod)
+ * Tool registry follows AI SDK v6 tool schema pattern:
+ *   - Typed inputSchema (Zod)
  *   - Descriptive docstrings for LLM tool selection
  *   - Structured JSON returns
  *   - Error-safe execution
