@@ -1,27 +1,52 @@
 /**
  * prisma.config.ts
- * ----------------
- * Prisma ORM v7 — CLI configuration (migrations, db push, generate).
+ * ─────────────────
+ * Prisma ORM v7 — CLI configuration.
+ * Used by: prisma generate, prisma db push, prisma migrate deploy/dev
  *
- * The `datasource.url` here is used by Prisma CLI commands only.
- * Runtime queries use lib/prisma.ts which parses the URL and passes
- * a pg.PoolConfig directly to PrismaPg (bypassing the SSL override bug).
+ * ─── URL Priority ────────────────────────────────────────────────────────────
  *
- * For Supabase:
- *   DATABASE_URL     → use the "Direct connection" URL (port 5432, no pooler)
- *   POSTGRES_PRISMA_URL → Supavisor pooled URL (port 6543, for runtime)
+ *   DATABASE_URL        → checked first. Used by Nile, Railway, Render, most providers.
+ *   POSTGRES_URL        → Vercel Postgres / Supabase direct URL
+ *   POSTGRES_PRISMA_URL → Vercel Postgres / Supabase pooled URL
  *
- * For migrations use the DIRECT URL — Supavisor transaction mode doesn't
- * support DDL statements.
+ * For migrations and db push, always use a DIRECT (non-pooled) connection URL.
+ * Pooled connections (PgBouncer/Supavisor in transaction mode) do not support DDL.
+ *
+ * ─── Provider-specific URL formats ───────────────────────────────────────────
+ *
+ *   NeonDB:
+ *     DATABASE_URL=postgresql://user:pass@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
+ *
+ *   Nile (thenile.dev):
+ *     DATABASE_URL=postgres://user:pass@region.db.thenile.dev:5432/mydb?sslmode=require
+ *
+ *   Supabase:
+ *     DATABASE_URL=postgresql://postgres:pass@db.xxx.supabase.co:5432/postgres?sslmode=require
+ *
+ *   Railway:
+ *     DATABASE_URL=postgresql://postgres:pass@monorail.proxy.rlwy.net:PORT/railway?sslmode=require
+ *
+ *   Render:
+ *     DATABASE_URL=postgresql://user:pass@host.oregon-postgres.render.com/dbname?sslmode=require
+ *
+ *   Aiven:
+ *     DATABASE_URL=postgresql://user:pass@host.aivencloud.com:PORT/defaultdb?sslmode=require
+ *
+ *   Local / Docker (no SSL):
+ *     DATABASE_URL=postgresql://postgres:postgres@localhost:5432/mydb
+ *
+ * All standard PostgreSQL sslmode values are supported: disable, allow, prefer,
+ * require, verify-ca, verify-full. See lib/prisma.ts for full SSL documentation.
  */
 import { defineConfig } from "prisma/config"
 
-// For migrations: prefer DATABASE_URL (direct), fall back to pooled URL
 const migrationUrl =
   process.env.DATABASE_URL?.trim() ||
-  process.env.POSTGRES_PRISMA_URL?.trim() ||
   process.env.POSTGRES_URL?.trim() ||
-  // Fallback placeholder to allow prisma generate to succeed without a real DB
+  process.env.POSTGRES_PRISMA_URL?.trim() ||
+  // Placeholder lets `prisma generate` succeed in CI without a real DB URL.
+  // The build script (scripts/setup-database.ts) will error if no real URL is set.
   "postgresql://placeholder:placeholder@localhost:5432/placeholder"
 
 export default defineConfig({
