@@ -12,7 +12,8 @@
     "db:migrate": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "db:init-sql": "echo 'Copy scripts/init-database.sql into the Neon SQL editor to initialize manually'"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.43",
