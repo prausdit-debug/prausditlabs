@@ -32,6 +32,10 @@ const SCHEMAS: Record<string, string> = {
     content: "string (rich HTML content with formatting)",
     tags: ["string"],
   }),
+  model: JSON.stringify({
+    description: "string (detailed model description)",
+    notes: "string (training notes, observations, recommendations)",
+  }),
 }
 
 export async function POST(req: Request) {
