@@ -6,10 +6,12 @@ import { useState, useId, useEffect } from "react"
 import { cn } from "@/lib/utils"
 import { UserButton } from "@clerk/nextjs"
 import { useCurrentUser } from "@/components/auth/auth-guard"
+import { useProject, ProjectType } from "@/components/project/project-context"
 import {
   LayoutDashboard, Map, BookOpen, Database, FlaskConical,
-  Package, StickyNote, ChevronRight, Activity, Users,
-  Menu, X, Settings, Shield, MessageSquare,
+  Package, StickyNote, ChevronRight, Users,
+  Menu, X, Settings, Shield, MessageSquare, FolderKanban,
+  ChevronDown, Plus, Cpu, Globe, Server, Sparkles, Check,
 } from "lucide-react"
 
 const NAV_ITEMS = [
@@ -36,12 +38,31 @@ function hasAccess(userRole: string, minRole: string) {
   return (ROLE_RANK[userRole] ?? 0) >= (ROLE_RANK[minRole] ?? 0)
 }
 
-function NavContent({ onLinkClick }: { onLinkClick?: () => void }) {
+// Project type icons
+const PROJECT_TYPE_ICONS: Record<ProjectType, React.ElementType> = {
+  MODEL: Cpu,
+  FRONTEND: Globe,
+  BACKEND: Server,
+  CUSTOM: Sparkles,
+}
+
+const PROJECT_TYPE_COLORS: Record<ProjectType, string> = {
+  MODEL: "text-purple-400 bg-purple-500/10 border-purple-500/20",
+  FRONTEND: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+  BACKEND: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  CUSTOM: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+}
+
+function NavContent({ onLinkClick, onOpenProjectDialog }: { onLinkClick?: () => void; onOpenProjectDialog?: () => void }) {
   const pathname = usePathname()
   const appUser = useCurrentUser()
   const userRole = appUser?.role ?? "developer"
   const workspaceId = useId()
   const adminId = useId()
+  
+  const { projects, selectedProject, selectProject, loading: projectsLoading } = useProject()
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
+  const canCreateProject = ["admin", "super_admin"].includes(userRole)
 
   return (
     <div className="flex flex-col h-full">
@@ -61,16 +82,109 @@ function NavContent({ onLinkClick }: { onLinkClick?: () => void }) {
         </div>
       </div>
 
-      {/* Status badge */}
-      <div className="px-3 pt-3">
-        <div 
-          className="flex items-center gap-2 px-2.5 py-2 rounded-md bg-amber-500/5 border border-amber-500/15"
-          role="status"
-          aria-label="Current project phase: Phase 3, In Progress"
+      {/* Project Selector */}
+      <div className="px-3 pt-3 relative">
+        <button
+          onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+          className={cn(
+            "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg border transition-colors text-left",
+            selectedProject 
+              ? PROJECT_TYPE_COLORS[selectedProject.type]
+              : "bg-muted/30 border-border hover:bg-muted/50"
+          )}
+          aria-expanded={projectDropdownOpen}
+          aria-haspopup="listbox"
         >
-          <Activity className="w-3 h-3 text-amber-400 flex-shrink-0" aria-hidden="true" />
-          <span className="text-[11px] text-amber-400 font-mono truncate">PHASE 3 - IN PROGRESS</span>
-        </div>
+          {selectedProject ? (
+            <>
+              {(() => {
+                const Icon = PROJECT_TYPE_ICONS[selectedProject.type]
+                return <Icon className="w-4 h-4 flex-shrink-0" />
+              })()}
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-semibold truncate">{selectedProject.name}</p>
+                <p className="text-[10px] opacity-70 capitalize">{selectedProject.type.toLowerCase()} Project</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <FolderKanban className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <span className="text-[12px] text-muted-foreground flex-1">No Project Selected</span>
+            </>
+          )}
+          <ChevronDown className={cn(
+            "w-4 h-4 text-muted-foreground transition-transform flex-shrink-0",
+            projectDropdownOpen && "rotate-180"
+          )} />
+        </button>
+
+        {/* Project Dropdown */}
+        {projectDropdownOpen && (
+          <>
+            <div 
+              className="fixed inset-0 z-40" 
+              onClick={() => setProjectDropdownOpen(false)} 
+            />
+            <div className="absolute left-3 right-3 top-full mt-1 z-50 rounded-lg border border-border bg-card shadow-xl overflow-hidden max-h-64 overflow-y-auto">
+              {projectsLoading ? (
+                <div className="px-3 py-4 text-center text-[12px] text-muted-foreground">
+                  Loading projects...
+                </div>
+              ) : projects.length === 0 ? (
+                <div className="px-3 py-4 text-center">
+                  <p className="text-[12px] text-muted-foreground mb-2">No projects yet</p>
+                  {canCreateProject && (
+                    <button
+                      onClick={() => { setProjectDropdownOpen(false); onOpenProjectDialog?.() }}
+                      className="text-[11px] text-amber-400 hover:text-amber-300 font-medium"
+                    >
+                      Create your first project
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {/* Project list */}
+                  {projects.map(project => {
+                    const Icon = PROJECT_TYPE_ICONS[project.type]
+                    const isSelected = selectedProject?.id === project.id
+                    return (
+                      <button
+                        key={project.id}
+                        onClick={() => { selectProject(project.id); setProjectDropdownOpen(false) }}
+                        className={cn(
+                          "w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-accent transition-colors",
+                          isSelected && "bg-amber-500/5"
+                        )}
+                      >
+                        <Icon className={cn("w-4 h-4 flex-shrink-0", PROJECT_TYPE_COLORS[project.type].split(" ")[0])} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[12px] font-medium text-foreground truncate">{project.name}</p>
+                          <p className="text-[10px] text-muted-foreground capitalize">{project.type.toLowerCase()}</p>
+                        </div>
+                        {isSelected && <Check className="w-4 h-4 text-amber-400 flex-shrink-0" />}
+                      </button>
+                    )
+                  })}
+                  
+                  {/* Add project button */}
+                  {canCreateProject && (
+                    <>
+                      <div className="border-t border-border" />
+                      <button
+                        onClick={() => { setProjectDropdownOpen(false); onOpenProjectDialog?.() }}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-accent transition-colors"
+                      >
+                        <Plus className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                        <span className="text-[12px] text-amber-400 font-medium">New Project</span>
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Main navigation */}
@@ -173,7 +287,11 @@ function NavContent({ onLinkClick }: { onLinkClick?: () => void }) {
   )
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  onOpenProjectDialog?: () => void
+}
+
+export function Sidebar({ onOpenProjectDialog }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   // Close sidebar on escape key
@@ -237,7 +355,7 @@ export function Sidebar() {
         >
           <X className="w-4 h-4" aria-hidden="true" />
         </button>
-        <NavContent onLinkClick={() => setMobileOpen(false)} />
+        <NavContent onLinkClick={() => setMobileOpen(false)} onOpenProjectDialog={onOpenProjectDialog} />
       </aside>
 
       {/* Desktop sidebar */}
@@ -245,7 +363,7 @@ export function Sidebar() {
         className="hidden md:flex w-60 flex-shrink-0 border-r border-border flex-col bg-card/50 backdrop-blur-sm"
         aria-label="Desktop navigation"
       >
-        <NavContent />
+        <NavContent onOpenProjectDialog={onOpenProjectDialog} />
       </aside>
     </>
   )

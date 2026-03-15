@@ -1,11 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Edit3, Save, X, Loader2, Tag, CheckCircle2, Clock, Circle, Trash2 } from "lucide-react"
+import { ArrowLeft, Edit3, Save, X, Loader2, Tag, CheckCircle2, Clock, Circle, Trash2, Sparkles } from "lucide-react"
 import Link from "next/link"
 import { RichTextEditor } from "@/components/editor/rich-text-editor"
 import { DocContent } from "@/components/docs/doc-content"
+import { ResourceMetadata } from "@/components/shared/resource-metadata"
+import { AIEditDialog } from "@/components/editor/ai-edit-dialog"
+import { useCurrentUser } from "@/components/auth/auth-guard"
 import { cn, formatDate } from "@/lib/utils"
 
 interface DocPage {
@@ -16,7 +19,15 @@ interface DocPage {
   section: string
   tags: string[]
   progress: "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED"
+  createdAt: string
   updatedAt: string
+  createdByUserId?: string | null
+  createdByUserName?: string | null
+  createdWithAIModel?: string | null
+  lastEditedByUserId?: string | null
+  lastEditedByUserName?: string | null
+  lastEditedAt?: string | null
+  editedWithAIModel?: string | null
   versions?: { id: string; version: number; createdAt: string }[]
 }
 
@@ -29,6 +40,7 @@ const PROGRESS_CONFIG = {
 export default function DocPage() {
   const { slug } = useParams() as { slug: string }
   const router = useRouter()
+  const currentUser = useCurrentUser()
   const [doc, setDoc] = useState<DocPage | null>(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
@@ -36,6 +48,9 @@ export default function DocPage() {
   const [editTitle, setEditTitle] = useState("")
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [aiDialogOpen, setAiDialogOpen] = useState(false)
+  const [selectedText, setSelectedText] = useState("")
+  const [usedAIModel, setUsedAIModel] = useState<string | null>(null)
 
   useEffect(() => {
     fetch(`/api/docs/${slug}`)
@@ -57,15 +72,39 @@ export default function DocPage() {
     const res = await fetch(`/api/docs/${slug}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: editTitle, content: editContent }),
+      body: JSON.stringify({ 
+        title: editTitle, 
+        content: editContent,
+        lastEditedByUserId: currentUser?.id || null,
+        lastEditedByUserName: currentUser?.name || currentUser?.email || null,
+        ...(usedAIModel && { editedWithAIModel: usedAIModel }),
+      }),
     })
     if (res.ok) {
       const updated = await res.json()
       setDoc(updated)
       setEditing(false)
+      setUsedAIModel(null)
     }
     setSaving(false)
   }
+
+  const handleAIEdit = useCallback(() => {
+    const selection = window.getSelection()?.toString() || ""
+    if (selection.trim()) {
+      setSelectedText(selection)
+      setAiDialogOpen(true)
+    }
+  }, [])
+
+  const handleAIAccept = useCallback((newText: string, modelName: string) => {
+    if (selectedText && editContent.includes(selectedText)) {
+      setEditContent(editContent.replace(selectedText, newText))
+      setUsedAIModel(modelName)
+    }
+    setAiDialogOpen(false)
+    setSelectedText("")
+  }, [selectedText, editContent])
 
   const updateProgress = async (progress: DocPage["progress"]) => {
     if (!doc) return
@@ -145,6 +184,14 @@ export default function DocPage() {
           {editing && (
             <>
               <button
+                onClick={handleAIEdit}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-500/50 text-purple-400 text-[12px] hover:bg-purple-500/10 transition-colors"
+                title="Select text first, then click to edit with AI"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Edit with AI
+              </button>
+              <button
                 onClick={saveEdit}
                 disabled={saving}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-black text-[12px] font-semibold hover:bg-amber-400 transition-colors disabled:opacity-60"
@@ -173,6 +220,16 @@ export default function DocPage() {
       ) : (
         <h1 className="text-2xl font-bold text-foreground">{doc.title}</h1>
       )}
+
+      {/* Metadata */}
+      <ResourceMetadata
+        createdByUserName={doc.createdByUserName}
+        createdAt={doc.createdAt}
+        createdWithAIModel={doc.createdWithAIModel}
+        lastEditedByUserName={doc.lastEditedByUserName}
+        lastEditedAt={doc.lastEditedAt}
+        editedWithAIModel={doc.editedWithAIModel}
+      />
 
       {/* Meta row */}
       <div className="flex flex-wrap items-center gap-3">
@@ -241,6 +298,14 @@ export default function DocPage() {
           </div>
         </div>
       )}
+
+      {/* AI Edit Dialog */}
+      <AIEditDialog
+        open={aiDialogOpen}
+        onOpenChange={setAiDialogOpen}
+        selectedText={selectedText}
+        onAccept={handleAIAccept}
+      />
     </div>
   )
 }

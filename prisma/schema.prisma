@@ -30,10 +30,48 @@ model User {
   role      UserRole @default(user)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  projects  Project[] @relation("ProjectCreator")
 
   @@index([clerkId])
   @@index([email])
   @@index([role])
+}
+
+// ─────────────────────────────────────────────
+// PROJECTS
+// ─────────────────────────────────────────────
+
+enum ProjectType {
+  MODEL
+  FRONTEND
+  BACKEND
+  CUSTOM
+}
+
+model Project {
+  id            String      @id @default(cuid())
+  name          String
+  type          ProjectType
+  description   String?     @db.Text
+  config        Json?       // Stores type-specific config (modelType, platform, frameworks, etc.)
+  createdById   String
+  createdByName String?
+  createdBy     User        @relation("ProjectCreator", fields: [createdById], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  // Relations to project-scoped entities
+  datasets       Dataset[]
+  experiments    Experiment[]
+  documentation  DocumentationPage[]
+  roadmapSteps   RoadmapStep[]
+  notes          Note[]
+  modelVersions  ModelVersion[]
+  chatSessions   ChatSession[]
+
+  @@index([createdById])
+  @@index([type])
+  @@index([name])
 }
 
 // ─────────────────────────────────────────────
@@ -52,11 +90,25 @@ model RoadmapStep {
   estimatedCompletion DateTime?
   progressPercent     Int         @default(0)
   tasks               RoadmapTask[]
+  projectId           String?
+  project             Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Author tracking
+  createdByUserId     String?
+  createdByUserName   String?
+  
+  // Edit attribution
+  lastEditedByUserId   String?
+  lastEditedByUserName String?
+  lastEditedAt         DateTime?
+  editedWithAIModel    String?
+  
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
 
   @@index([phase])
   @@index([status])
+  @@index([projectId])
 }
 
 model RoadmapTask {
@@ -82,20 +134,34 @@ enum StepStatus {
 // ─────────────────────────────────────────────
 
 model DocumentationPage {
-  id        String       @id @default(cuid())
-  title     String
-  slug      String       @unique
-  content   String       @db.Text
-  section   String
-  order     Int          @default(0)
-  tags      String[]
-  progress  DocProgress  @default(NOT_STARTED)
-  versions  DocVersion[]
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  id          String       @id @default(cuid())
+  title       String
+  slug        String       @unique
+  content     String       @db.Text
+  section     String
+  order       Int          @default(0)
+  tags        String[]
+  progress    DocProgress  @default(NOT_STARTED)
+  versions    DocVersion[]
+  projectId   String?
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Author tracking
+  createdByUserId     String?
+  createdByUserName   String?
+  
+  // Edit attribution
+  lastEditedByUserId   String?
+  lastEditedByUserName String?
+  lastEditedAt         DateTime?
+  editedWithAIModel    String?
+  
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   @@index([section])
   @@index([slug])
+  @@index([projectId])
 }
 
 enum DocProgress {
@@ -132,11 +198,25 @@ model Dataset {
   format           String?
   license          String?
   experiments      Experiment[]
+  projectId        String?
+  project          Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Author tracking
+  createdByUserId     String?
+  createdByUserName   String?
+  
+  // Edit attribution
+  lastEditedByUserId   String?
+  lastEditedByUserName String?
+  lastEditedAt         DateTime?
+  editedWithAIModel    String?
+  
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
   @@index([datasetType])
   @@index([preprocessStatus])
+  @@index([projectId])
 }
 
 enum DatasetType {
@@ -182,11 +262,25 @@ model Experiment {
   pass1Score    Float?
   logs          ExperimentLog[]
   modelVersions ModelVersion[]
+  projectId     String?
+  project       Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Author tracking
+  createdByUserId     String?
+  createdByUserName   String?
+  
+  // Edit attribution
+  lastEditedByUserId   String?
+  lastEditedByUserName String?
+  lastEditedAt         DateTime?
+  editedWithAIModel    String?
+  
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
   @@index([status])
   @@index([datasetId])
+  @@index([projectId])
 }
 
 model ExperimentLog {
@@ -231,11 +325,25 @@ model ModelVersion {
   fileSizeBytes    BigInt?
   isDeployed       Boolean           @default(false)
   notes            String?           @db.Text
+  projectId        String?
+  project          Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Author tracking
+  createdByUserId     String?
+  createdByUserName   String?
+  
+  // Edit attribution
+  lastEditedByUserId   String?
+  lastEditedByUserName String?
+  lastEditedAt         DateTime?
+  editedWithAIModel    String?
+  
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
   @@index([version])
   @@index([experimentId])
+  @@index([projectId])
 }
 
 enum QuantizationType {
@@ -273,10 +381,24 @@ model Note {
   content   String   @db.Text
   tags      String[]
   pinned    Boolean  @default(false)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Author tracking
+  createdByUserId     String?
+  createdByUserName   String?
+  
+  // Edit attribution
+  lastEditedByUserId   String?
+  lastEditedByUserName String?
+  lastEditedAt         DateTime?
+  editedWithAIModel    String?
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([pinned])
+  @@index([projectId])
 }
 
 // ─────────────────────────────────────────────
@@ -295,12 +417,15 @@ model ChatSession {
   creatorName String?
   visibility  ChatVisibility @default(team)
   messages    ChatMessage[]
+  projectId   String?
+  project     Project?       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
   @@index([creatorId])
   @@index([visibility])
   @@index([updatedAt])
+  @@index([projectId])
 }
 
 model ChatMessage {

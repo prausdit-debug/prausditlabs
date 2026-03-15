@@ -2,13 +2,18 @@ import { NextResponse } from "next/server"
 import { prisma, isDatabaseConfigured } from "@/lib/prisma"
 import { requireWriteAuth } from "@/lib/api-auth"
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!isDatabaseConfigured()) {
     return NextResponse.json([])
   }
 
   try {
+    // Get projectId from query params
+    const { searchParams } = new URL(request.url)
+    const projectId = searchParams.get("projectId")
+
     const pages = await prisma.documentationPage.findMany({
+      where: projectId ? { projectId } : undefined,
       orderBy: [{ section: "asc" }, { order: "asc" }],
     })
     return NextResponse.json(pages)
@@ -44,6 +49,10 @@ export async function POST(req: Request) {
         section: body.section || "Uncategorized",
         order: body.order || 99,
         tags: body.tags || [],
+        projectId: body.projectId || null,
+        createdByUserId: body.createdByUserId || null,
+        createdByUserName: body.createdByUserName || null,
+        createdWithAIModel: body.createdWithAIModel || null,
       },
     })
     return NextResponse.json(page)

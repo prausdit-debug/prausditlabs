@@ -8,10 +8,89 @@ import {
   FileText, Zap, X, Cpu, Globe, ChevronUp,
   Search, Wrench, CheckCircle2, BrainCircuit, Plus,
   MessageSquare, Lock, Users, MoreHorizontal, Pencil, Eye,
-  EyeOff, ArrowLeft,
+  EyeOff, ArrowLeft, Copy, RotateCcw, ChevronRight,
 } from "lucide-react"
 import { DocContent } from "@/components/docs/doc-content"
 import { useCurrentUser } from "@/components/auth/auth-guard"
+
+// Task strip component for showing agent tasks/plans
+function TaskStrip({ steps, isStreaming, currentStatus }: { 
+  steps: AgentStep[]
+  isStreaming: boolean
+  currentStatus: string | null 
+}) {
+  const [expanded, setExpanded] = useState(false)
+  
+  const activeSteps = steps.filter(s => s.type === "tool_call" || s.type === "tool_result")
+  if (activeSteps.length === 0 && !isStreaming) return null
+
+  const completedCount = activeSteps.filter(s => s.type === "tool_result").length
+  const totalCount = Math.ceil(activeSteps.length / 2)
+
+  return (
+    <div className="mb-3">
+      <button 
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-4 py-2.5 rounded-lg bg-amber-500/5 border border-amber-500/20 hover:bg-amber-500/10 transition-colors"
+      >
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {isStreaming ? (
+            <Loader2 className="w-4 h-4 animate-spin text-amber-400 flex-shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          )}
+          <span className="text-[12px] text-foreground font-medium truncate">
+            {isStreaming && currentStatus ? currentStatus : `${completedCount} task${completedCount !== 1 ? 's' : ''} completed`}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {totalCount > 0 && (
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(totalCount, 6) }).map((_, i) => (
+                <div 
+                  key={i} 
+                  className={cn(
+                    "w-2 h-2 rounded-full transition-colors",
+                    i < completedCount ? "bg-emerald-400" : "bg-muted-foreground/30"
+                  )} 
+                />
+              ))}
+              {totalCount > 6 && <span className="text-[10px] text-muted-foreground ml-1">+{totalCount - 6}</span>}
+            </div>
+          )}
+          {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </div>
+      </button>
+      
+      {expanded && activeSteps.length > 0 && (
+        <div className="mt-2 rounded-lg border border-border bg-card overflow-hidden max-h-48 overflow-y-auto">
+          {activeSteps.map((step) => {
+            const Icon = step.tool ? (TOOL_ICONS[step.tool] || Wrench) : BrainCircuit
+            const isComplete = step.type === "tool_result"
+            return (
+              <div 
+                key={step.id} 
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 text-[12px] border-b border-border/50 last:border-0",
+                  isComplete ? "text-emerald-400/80" : "text-muted-foreground"
+                )}
+              >
+                <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
+                  {isComplete ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Icon className="w-3.5 h-3.5" />
+                  )}
+                </div>
+                <span className={cn("flex-1 truncate", isComplete && "line-through opacity-70")}>{step.text}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 type AgentEventType = "text" | "status" | "tool_call" | "tool_result" | "done" | "error"
 
@@ -41,14 +120,27 @@ interface Message {
   loading?: boolean
   agentSteps?: AgentStep[]
   stepsExpanded?: boolean
+  reasoning?: string
+  reasoningExpanded?: boolean
+  modelId?: string
 }
+
+type RoutingMode = "auto" | "auto-free" | "auto-paid" | "manual"
 
 interface ChatModel {
   id: string
   name: string
   provider: "gemini" | "openrouter"
   shortName: string
+  free?: boolean
 }
+
+// Auto routing models - these will dynamically select the best model
+const AUTO_ROUTING_MODELS: ChatModel[] = [
+  { id: "auto", name: "Auto (Best Available)", provider: "openrouter", shortName: "Auto", free: false },
+  { id: "auto-free", name: "Auto-Free (Best Free)", provider: "openrouter", shortName: "Auto-Free", free: true },
+  { id: "auto-paid", name: "Auto-Paid (Premium)", provider: "openrouter", shortName: "Auto-Paid", free: false },
+]
 
 interface ChatSession {
   id: string
@@ -122,6 +214,162 @@ function AgentStepsPanel({ steps, expanded, onToggle }: { steps: AgentStep[]; ex
   )
 }
 
+// Collapsible Reasoning Panel
+function ReasoningPanel({ reasoning, expanded, onToggle }: { reasoning: string; expanded: boolean; onToggle: () => void }) {
+  if (!reasoning) return null
+  return (
+    <div className="mt-2 rounded-lg border border-blue-500/20 bg-blue-500/5 overflow-hidden">
+      <button onClick={onToggle} className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-blue-500/10 transition-colors text-left">
+        <ChevronRight className={cn("w-3 h-3 text-blue-400/70 flex-shrink-0 transition-transform", expanded && "rotate-90")} />
+        <span className="text-[10px] text-blue-400/80 font-medium flex-1">Reasoning</span>
+      </button>
+      {expanded && (
+        <div className="px-3 pb-2 border-t border-blue-500/10">
+          <p className="text-[11px] text-muted-foreground leading-relaxed whitespace-pre-wrap">{reasoning}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Message Actions (copy, edit, resend)
+function MessageActions({ 
+  message, 
+  onCopy, 
+  onEdit, 
+  onResend,
+  isEditing,
+  setIsEditing
+}: { 
+  message: Message
+  onCopy: () => void
+  onEdit: (newContent: string) => void
+  onResend: () => void
+  isEditing: boolean
+  setIsEditing: (v: boolean) => void
+}) {
+  const [editValue, setEditValue] = useState(message.content)
+  const [copied, setCopied] = useState(false)
+
+  // Sync editValue when entering edit mode
+  useEffect(() => {
+    if (isEditing) {
+      setEditValue(message.content)
+    }
+  }, [isEditing, message.content])
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(message.content)
+    setCopied(true)
+    onCopy()
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  if (isEditing && message.role === "user") {
+    return (
+      <div className="mt-2 space-y-2">
+        <textarea 
+          value={editValue}
+          onChange={e => setEditValue(e.target.value)}
+          className="w-full bg-background border border-border rounded-lg px-3 py-2 text-[13px] text-foreground outline-none focus:border-amber-500/40 resize-none"
+          rows={3}
+          autoFocus
+        />
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => { onEdit(editValue); setIsEditing(false) }}
+            className="px-3 py-1.5 rounded-md bg-amber-500 text-black text-[12px] font-medium hover:bg-amber-400 transition-colors"
+          >
+            Save & Resend
+          </button>
+          <button 
+            onClick={() => setIsEditing(false)}
+            className="px-3 py-1.5 rounded-md bg-muted text-muted-foreground text-[12px] font-medium hover:bg-accent transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={cn(
+      "flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity",
+      message.role === "user" ? "justify-end" : "justify-start"
+    )}>
+      <button
+        onClick={handleCopy}
+        className="p-1 rounded hover:bg-accent transition-colors"
+        title="Copy message"
+      >
+        {copied ? (
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+        ) : (
+          <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+        )}
+      </button>
+      {message.role === "user" && (
+        <>
+          <button
+            onClick={() => setIsEditing(true)}
+            className="p-1 rounded hover:bg-accent transition-colors"
+            title="Edit message"
+          >
+            <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+          </button>
+          <button
+            onClick={onResend}
+            className="p-1 rounded hover:bg-accent transition-colors"
+            title="Resend message"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-muted-foreground" />
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+// Tool Execution Indicator
+function ToolExecutionIndicator({ step }: { step: AgentStep }) {
+  const Icon = step.tool ? (TOOL_ICONS[step.tool] || Wrench) : Wrench
+  const isComplete = step.type === "tool_result"
+  
+  return (
+    <div className={cn(
+      "flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] border",
+      isComplete 
+        ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-400"
+        : "bg-amber-500/5 border-amber-500/20 text-amber-400"
+    )}>
+      <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">
+        {isComplete ? (
+          <CheckCircle2 className="w-3.5 h-3.5" />
+        ) : (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        )}
+      </div>
+      <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+      <span className="font-medium truncate">{step.tool || "tool"}</span>
+      <span className={cn("text-[10px]", isComplete ? "text-emerald-400/60" : "text-amber-400/60")}>
+        {isComplete ? "completed" : "running"}
+      </span>
+    </div>
+  )
+}
+
+// Model Label
+function ModelLabel({ modelId }: { modelId?: string }) {
+  if (!modelId) return null
+  const shortName = modelId.split("/").pop()?.slice(0, 20) || modelId.slice(0, 20)
+  return (
+    <span className="text-[10px] text-muted-foreground/50 font-mono">
+      {shortName}
+    </span>
+  )
+}
+
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
@@ -153,6 +401,8 @@ export default function FullscreenChatPage() {
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renameVal, setRenameVal] = useState("")
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [routingMode, setRoutingMode] = useState<RoutingMode>("manual")
+  const [autoRoutingConfig, setAutoRoutingConfig] = useState<{ auto: string[]; autoFree: string[]; autoPaid: string[] } | null>(null)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -168,18 +418,34 @@ export default function FullscreenChatPage() {
       if (!s) return
       const ids: string[] = s.selectedOpenRouterModels || []
       let orModels: ChatModel[] = []
-      if (ids.length > 0) {
-        try {
-          const res = await fetch("/api/openrouter-models")
-          const data = res.ok ? await res.json() : {}
-          const all: Array<{ id: string; name: string }> = [...(data.free || []), ...(data.pro || [])]
+      
+      try {
+        const res = await fetch("/api/openrouter-models")
+        const data = res.ok ? await res.json() : {}
+        
+        // Store auto routing config
+        if (data.autoRouting) {
+          setAutoRoutingConfig(data.autoRouting)
+        }
+        
+        const allOrModels: Array<{ id: string; name: string; free?: boolean }> = [...(data.free || []), ...(data.pro || [])]
+        
+        if (ids.length > 0) {
           orModels = ids.map(id => {
-            const found = all.find(m => m.id === id)
-            return { id, name: found?.name || id, provider: "openrouter" as const, shortName: (found?.name || id).split("/").pop()?.slice(0, 18) || id }
+            const found = allOrModels.find(m => m.id === id)
+            return { 
+              id, 
+              name: found?.name || id, 
+              provider: "openrouter" as const, 
+              shortName: (found?.name || id).split("/").pop()?.slice(0, 18) || id,
+              free: found?.free ?? false
+            }
           })
-        } catch { /* ignore */ }
-      }
-      const all = [...GEMINI_MODELS, ...orModels]
+        }
+      } catch { /* ignore */ }
+      
+      // Combine: Auto routing models + Gemini + OpenRouter selected
+      const all = [...AUTO_ROUTING_MODELS, ...GEMINI_MODELS, ...orModels]
       setAvailableModels(all)
       const defProvider = s.defaultProvider || "gemini"
       const defGemini = s.geminiDefaultModel || "gemini-2.5-flash"
@@ -283,6 +549,46 @@ export default function FullscreenChatPage() {
     setMessages(prev => prev.map(m => m.id === msgId ? { ...m, stepsExpanded: !m.stepsExpanded } : m))
   }, [])
 
+  const toggleReasoning = useCallback((msgId: string) => {
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, reasoningExpanded: !m.reasoningExpanded } : m))
+  }, [])
+
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+
+  const handleCopyMessage = useCallback(() => {
+    // Copy feedback could go here
+  }, [])
+
+  const handleEditMessage = useCallback((msgId: string, newContent: string) => {
+    const msgIndex = messages.findIndex(m => m.id === msgId)
+    if (msgIndex === -1) return
+    
+    setMessages(prev => {
+      const updated = [...prev]
+      updated[msgIndex] = { ...updated[msgIndex], content: newContent }
+      return updated.slice(0, msgIndex + 1)
+    })
+    
+    // Trigger resend after state update
+    setTimeout(() => {
+      sendMessageRef.current?.(newContent)
+    }, 0)
+  }, [messages])
+
+  const handleResendMessage = useCallback((msgId: string) => {
+    const msg = messages.find(m => m.id === msgId)
+    if (!msg || msg.role !== "user") return
+    
+    const msgIndex = messages.findIndex(m => m.id === msgId)
+    setMessages(prev => prev.slice(0, msgIndex + 1))
+    
+    setTimeout(() => {
+      sendMessageRef.current?.(msg.content)
+    }, 0)
+  }, [messages])
+
+  const sendMessageRef = useRef<((text: string) => void) | null>(null)
+
   const canManage = (s: ChatSession) =>
     s.creatorId === currentUserId || userRole === "super_admin" || userRole === "admin"
 
@@ -295,21 +601,45 @@ export default function FullscreenChatPage() {
       if (!sessionId) return
     }
 
+    // Resolve auto routing to actual model
+    let actualModel = selectedModel
+    let actualProvider: "gemini" | "openrouter" = selectedModel.provider
+    
+    if (selectedModel.id.startsWith("auto")) {
+      // Auto routing mode - select best model from config
+      const routingKey = selectedModel.id === "auto-free" ? "autoFree" 
+        : selectedModel.id === "auto-paid" ? "autoPaid" 
+        : "auto"
+      
+      const routingList = autoRoutingConfig?.[routingKey] || []
+      const resolvedModelId = routingList[0] || (selectedModel.id === "auto-free" 
+        ? "deepseek/deepseek-r1:free" 
+        : "anthropic/claude-3.7-sonnet")
+      
+      actualModel = { 
+        ...selectedModel, 
+        id: resolvedModelId,
+        shortName: resolvedModelId.split("/").pop()?.slice(0, 18) || resolvedModelId
+      }
+      actualProvider = "openrouter"
+      setCurrentStatus(`Auto-selecting: ${actualModel.shortName}`)
+    }
+
     const userMsg: Message = { id: Date.now().toString(), role: "user", content: text.trim() }
-    const aMsg: Message = { id: (Date.now() + 1).toString(), role: "assistant", content: "", loading: true, agentSteps: [], stepsExpanded: false }
+    const aMsg: Message = { id: (Date.now() + 1).toString(), role: "assistant", content: "", loading: true, agentSteps: [], stepsExpanded: false, modelId: actualModel.id }
     finalAMsgRef.current = aMsg
 
     setMessages(prev => [...prev, userMsg, aMsg])
     setInput("")
     setIsStreaming(true)
-    setCurrentStatus("Agent thinking...")
+    if (!currentStatus) setCurrentStatus("Agent thinking...")
     abortRef.current = new AbortController()
 
     try {
       const history = messages.slice(-10).map(m => ({ role: m.role, content: m.content }))
       const res = await fetch("/api/agent", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text.trim(), history, provider: selectedModel.provider, model: selectedModel.id }),
+        body: JSON.stringify({ message: text.trim(), history, provider: actualProvider, model: actualModel.id }),
         signal: abortRef.current.signal,
       })
 
@@ -382,6 +712,11 @@ export default function FullscreenChatPage() {
       }
     }
   }, [messages, isStreaming, selectedModel, activeSessionId, createSession, sessions])
+
+  // Keep sendMessageRef updated
+  useEffect(() => {
+    sendMessageRef.current = sendMessage
+  }, [sendMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input) }
@@ -553,36 +888,70 @@ export default function FullscreenChatPage() {
               </div>
             )}
             {messages.map(msg => (
-              <div key={msg.id} className={cn("flex gap-3", msg.role === "user" ? "justify-end" : "justify-start")}>
+              <div key={msg.id} className={cn("group flex gap-3", msg.role === "user" ? "justify-end" : "justify-start")}>
                 {msg.role === "assistant" && (
                   <div className="w-8 h-8 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center flex-shrink-0 mt-1">
                     <BrainCircuit className="w-4 h-4 text-amber-400" />
                   </div>
                 )}
-                <div className={cn("max-w-[80%] rounded-xl px-4 py-3 text-[14px]",
-                  msg.role === "user" ? "bg-amber-500 text-black rounded-br-sm" : "bg-muted border border-border rounded-bl-sm")}>
-                  {msg.loading && !msg.content && !msg.agentSteps?.length ? (
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-                      <span className="text-muted-foreground text-[13px]">{currentStatus || "Agent thinking..."}</span>
+                <div className="max-w-[80%] flex flex-col">
+                  <div className={cn("rounded-xl px-4 py-3 text-[14px]",
+                    msg.role === "user" ? "bg-amber-500 text-black rounded-br-sm" : "bg-muted border border-border rounded-bl-sm")}>
+                    {msg.loading && !msg.content && !msg.agentSteps?.length ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                        <span className="text-muted-foreground text-[13px]">{currentStatus || "Agent thinking..."}</span>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Streaming Tool Execution Indicators */}
+                        {msg.role === "assistant" && msg.loading && msg.agentSteps && msg.agentSteps.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mb-2">
+                            {msg.agentSteps.slice(-3).map(step => (
+                              <ToolExecutionIndicator key={step.id} step={step} />
+                            ))}
+                          </div>
+                        )}
+                        
+                        {/* Reasoning Panel (collapsible) */}
+                        {msg.role === "assistant" && msg.reasoning && (
+                          <ReasoningPanel 
+                            reasoning={msg.reasoning} 
+                            expanded={msg.reasoningExpanded ?? false} 
+                            onToggle={() => toggleReasoning(msg.id)} 
+                          />
+                        )}
+                        
+                        {msg.content && (
+                          msg.role === "assistant"
+                            ? <div className="prose-dark text-[14px]"><DocContent content={msg.content} /></div>
+                            : <span className="leading-relaxed">{msg.content}</span>
+                        )}
+                        
+                        {/* Agent Steps Panel */}
+                        {msg.role === "assistant" && !!msg.agentSteps?.length && !msg.loading && (
+                          <AgentStepsPanel steps={msg.agentSteps} expanded={msg.stepsExpanded ?? false} onToggle={() => toggleSteps(msg.id)} />
+                        )}
+                      </>
+                    )}
+                  </div>
+                  
+                  {/* Message Footer: Model label + Actions */}
+                  {!msg.loading && (
+                    <div className={cn(
+                      "flex items-center gap-2 mt-1 px-1",
+                      msg.role === "user" ? "justify-end" : "justify-start"
+                    )}>
+                      {msg.role === "assistant" && <ModelLabel modelId={msg.modelId || selectedModel.id} />}
+                      <MessageActions
+                        message={msg}
+                        onCopy={() => handleCopyMessage()}
+                        onEdit={(content) => handleEditMessage(msg.id, content)}
+                        onResend={() => handleResendMessage(msg.id)}
+                        isEditing={editingMessageId === msg.id}
+                        setIsEditing={(v) => setEditingMessageId(v ? msg.id : null)}
+                      />
                     </div>
-                  ) : (
-                    <>
-                      {msg.loading && !msg.content && !!msg.agentSteps?.length && currentStatus && (
-                        <div className="flex items-center gap-2 mb-2">
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400 flex-shrink-0" />
-                          <span className="text-[12px] text-amber-400">{currentStatus}</span>
-                        </div>
-                      )}
-                      {msg.content && (
-                        msg.role === "assistant"
-                          ? <div className="prose-dark text-[14px]"><DocContent content={msg.content} /></div>
-                          : <span className="leading-relaxed">{msg.content}</span>
-                      )}
-                      {msg.role === "assistant" && !!msg.agentSteps?.length && (
-                        <AgentStepsPanel steps={msg.agentSteps} expanded={msg.stepsExpanded ?? false} onToggle={() => toggleSteps(msg.id)} />
-                      )}
-                    </>
                   )}
                 </div>
                 {msg.role === "user" && (
@@ -592,20 +961,21 @@ export default function FullscreenChatPage() {
                 )}
               </div>
             ))}
-            {isStreaming && currentStatus && (
-              <div className="flex items-center gap-2 pl-11">
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/5 border border-amber-500/20">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                  <span className="text-[12px] text-amber-400">{currentStatus}</span>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
         {/* Input area */}
         {activeSessionId && (
           <div className="border-t border-border p-4 flex-shrink-0 bg-card/50">
+            {/* Task strip */}
+            {(() => {
+              const lastAssistantMsg = messages.filter(m => m.role === "assistant").pop()
+              const agentSteps = lastAssistantMsg?.agentSteps || []
+              return (agentSteps.length > 0 || (isStreaming && currentStatus)) ? (
+                <TaskStrip steps={agentSteps} isStreaming={isStreaming} currentStatus={currentStatus} />
+              ) : null
+            })()}
+            
             {showCommands && (
               <div className="mb-2 rounded-lg border border-border bg-card shadow-lg overflow-hidden">
                 {SLASH_COMMANDS.filter(c => c.cmd.includes(input)).map(c => (
@@ -618,44 +988,116 @@ export default function FullscreenChatPage() {
               </div>
             )}
             {showModelPicker && (
-              <div className="mb-2 rounded-lg border border-border bg-card shadow-lg overflow-hidden max-h-60 overflow-y-auto">
-                <div className="px-3 py-2 border-b border-border">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Select Model</p>
+              <div className="mb-2 rounded-lg border border-border bg-card shadow-lg overflow-hidden max-h-72 overflow-y-auto">
+                {/* Auto Routing Section */}
+                <div className="px-3 py-2 border-b border-border bg-gradient-to-r from-amber-500/5 to-transparent">
+                  <p className="text-[10px] text-amber-400 uppercase tracking-wider font-semibold">Auto Routing</p>
                 </div>
-                {availableModels.map(model => (
-                  <button key={model.id} onClick={() => { setSelectedModel(model); setShowModelPicker(false); inputRef.current?.focus() }}
+                {AUTO_ROUTING_MODELS.map(model => (
+                  <button key={model.id} onClick={() => { 
+                    setSelectedModel(model)
+                    setRoutingMode(model.id as RoutingMode)
+                    setShowModelPicker(false)
+                    inputRef.current?.focus() 
+                  }}
+                    className={cn("w-full flex items-center gap-2 px-4 py-2.5 hover:bg-accent transition-colors text-left", selectedModel.id === model.id && "bg-amber-500/10")}>
+                    <Zap className={cn("w-3.5 h-3.5", model.id === "auto-free" ? "text-emerald-400" : model.id === "auto-paid" ? "text-amber-400" : "text-blue-400")} />
+                    <span className="text-[13px] text-foreground flex-1 truncate">{model.name}</span>
+                    {model.free && <span className="text-[9px] text-emerald-400 font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">FREE</span>}
+                    {selectedModel.id === model.id && <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />}
+                  </button>
+                ))}
+                
+                {/* Manual Selection Section */}
+                <div className="px-3 py-2 border-b border-t border-border">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Manual Selection</p>
+                </div>
+                {availableModels.filter(m => !m.id.startsWith("auto")).map(model => (
+                  <button key={model.id} onClick={() => { 
+                    setSelectedModel(model)
+                    setRoutingMode("manual")
+                    setShowModelPicker(false)
+                    inputRef.current?.focus() 
+                  }}
                     className={cn("w-full flex items-center gap-2 px-4 py-2.5 hover:bg-accent transition-colors text-left", selectedModel.id === model.id && "bg-amber-500/5")}>
                     <ModelBadge provider={model.provider} />
                     <span className="text-[13px] text-foreground flex-1 truncate">{model.name}</span>
+                    {model.free && <span className="text-[9px] text-emerald-400 font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">FREE</span>}
                     {selectedModel.id === model.id && <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />}
                   </button>
                 ))}
               </div>
             )}
+            
+            {/* Model selector row */}
             <div className="flex items-center gap-2 mb-3">
               <button onClick={() => setShowModelPicker(v => !v)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-accent transition-colors">
-                <ModelBadge provider={selectedModel.provider} />
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 rounded-lg border transition-colors",
+                  selectedModel.id.startsWith("auto") 
+                    ? "border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10" 
+                    : "border-border bg-muted/30 hover:bg-accent"
+                )}>
+                {selectedModel.id.startsWith("auto") ? (
+                  <Zap className={cn("w-3.5 h-3.5", 
+                    selectedModel.id === "auto-free" ? "text-emerald-400" : 
+                    selectedModel.id === "auto-paid" ? "text-amber-400" : "text-blue-400"
+                  )} />
+                ) : (
+                  <ModelBadge provider={selectedModel.provider} />
+                )}
                 <span className="text-[12px] text-foreground font-medium max-w-[140px] truncate">{selectedModel.shortName}</span>
                 {showModelPicker ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
               </button>
-              <div className="flex items-center gap-1.5">
+              <div className="hidden sm:flex items-center gap-1.5">
+                {selectedModel.id.startsWith("auto") && (
+                  <span className={cn(
+                    "text-[9px] font-semibold px-1.5 py-0.5 rounded border",
+                    selectedModel.id === "auto-free" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" :
+                    selectedModel.id === "auto-paid" ? "text-amber-400 bg-amber-500/10 border-amber-500/20" :
+                    "text-blue-400 bg-blue-500/10 border-blue-500/20"
+                  )}>
+                    {selectedModel.id === "auto-free" ? "FREE TIER" : selectedModel.id === "auto-paid" ? "PREMIUM" : "AUTO"}
+                  </span>
+                )}
                 <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                <span className="text-[11px] text-muted-foreground">Agentic - {selectedModel.provider === "gemini" ? "Gemini" : "OpenRouter"}</span>
+                <span className="text-[11px] text-muted-foreground">Agentic</span>
               </div>
               {isStreaming && (
-                <button onClick={stopStreaming} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] hover:bg-red-500/20 transition-colors">
+                <button onClick={stopStreaming} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-medium hover:bg-red-500/20 transition-colors active:scale-95">
                   <X className="w-3.5 h-3.5" /> Stop
                 </button>
               )}
             </div>
-            <div className="flex items-end gap-3 bg-muted rounded-xl px-4 py-3 border border-border focus-within:border-amber-500/40">
-              <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown}
-                placeholder="Ask a question, use /command to create, or @docs to reference..."
+            
+            {/* Improved textarea */}
+            <div className="flex items-end gap-3 bg-muted rounded-xl px-4 py-3 border border-border transition-colors">
+              <textarea 
+                ref={inputRef} 
+                value={input} 
+                onChange={e => {
+                  setInput(e.target.value)
+                  // Auto-resize
+                  const textarea = e.target
+                  textarea.style.height = 'auto'
+                  textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 44), 140)}px`
+                }} 
+                onKeyDown={handleKeyDown}
+                placeholder="Ask a question, use /command to create..."
                 rows={1}
-                className="flex-1 bg-transparent text-foreground text-[14px] outline-none resize-none placeholder:text-muted-foreground min-h-[24px] max-h-[120px]" />
-              <button onClick={() => sendMessage(input)} disabled={!input.trim() || isStreaming}
-                className={cn("p-2 rounded-lg transition-all flex-shrink-0", input.trim() && !isStreaming ? "bg-amber-500 text-black hover:bg-amber-400" : "text-muted-foreground")}>
+                className="flex-1 bg-transparent text-foreground text-[14px] outline-none resize-none placeholder:text-muted-foreground leading-relaxed focus:ring-0 focus:outline-none caret-amber-400"
+                style={{ minHeight: '44px', maxHeight: '140px' }}
+              />
+              <button 
+                onClick={() => sendMessage(input)} 
+                disabled={!input.trim() || isStreaming}
+                className={cn(
+                  "p-2.5 rounded-lg transition-all flex-shrink-0 active:scale-95", 
+                  input.trim() && !isStreaming 
+                    ? "bg-amber-500 text-black hover:bg-amber-400" 
+                    : "text-muted-foreground bg-muted-foreground/10"
+                )}
+              >
                 {isStreaming ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
               </button>
             </div>

@@ -2,13 +2,18 @@ import { NextResponse } from "next/server"
 import { prisma, isDatabaseConfigured } from "@/lib/prisma"
 import { requireWriteAuth } from "@/lib/api-auth"
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!isDatabaseConfigured()) {
     return NextResponse.json([])
   }
 
   try {
+    // Get projectId from query params
+    const { searchParams } = new URL(request.url)
+    const projectId = searchParams.get("projectId")
+
     const steps = await prisma.roadmapStep.findMany({
+      where: projectId ? { projectId } : undefined,
       orderBy: { order: "asc" },
       include: { tasks: { orderBy: { createdAt: "asc" } } },
     })
@@ -44,6 +49,10 @@ export async function POST(req: Request) {
         estimatedCompletion: body.estimatedCompletion ? new Date(body.estimatedCompletion) : null,
         progressPercent: body.progressPercent ? Number(body.progressPercent) : 0,
         tasks: body.tasks ? { create: body.tasks } : undefined,
+        projectId: body.projectId || null,
+        createdByUserId: body.createdByUserId || null,
+        createdByUserName: body.createdByUserName || null,
+        createdWithAIModel: body.createdWithAIModel || null,
       },
       include: { tasks: true },
     })

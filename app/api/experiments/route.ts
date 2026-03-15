@@ -2,13 +2,18 @@ import { NextResponse } from "next/server"
 import { prisma, isDatabaseConfigured } from "@/lib/prisma"
 import { requireWriteAuth } from "@/lib/api-auth"
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!isDatabaseConfigured()) {
     return NextResponse.json([])
   }
 
   try {
+    // Get projectId from query params
+    const { searchParams } = new URL(request.url)
+    const projectId = searchParams.get("projectId")
+
     const experiments = await prisma.experiment.findMany({
+      where: projectId ? { projectId } : undefined,
       orderBy: { createdAt: "desc" },
       include: {
         dataset: { select: { name: true } },
@@ -50,6 +55,10 @@ export async function POST(req: Request) {
         learningRate: body.learningRate ? Number(body.learningRate) : null,
         epochs: body.epochs ? Number(body.epochs) : null,
         config: body.config || null,
+        projectId: body.projectId || null,
+        createdByUserId: body.createdByUserId || null,
+        createdByUserName: body.createdByUserName || null,
+        createdWithAIModel: body.createdWithAIModel || null,
       },
       include: { dataset: { select: { name: true } }, logs: true },
     })

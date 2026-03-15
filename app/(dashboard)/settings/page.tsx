@@ -5,7 +5,7 @@ import { useUser } from "@clerk/nextjs"
 import {
   Settings, Key, Cpu, User, Shield, CheckCircle2,
   XCircle, Loader2, Eye, EyeOff, RefreshCw, Zap,
-  Star, Lock, ChevronRight, AlertTriangle, Globe,
+  Star, Lock, ChevronRight, AlertTriangle, Globe, MessageSquare,
 } from "lucide-react"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -27,13 +27,44 @@ interface ORModel {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const GEMINI_MODELS = [
-  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", tier: "Free" as const },
-  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", tier: "Paid" as const },
-  { id: "gemini-2.0-flash-exp", name: "Gemini 2.0 Flash Exp", tier: "Free" as const },
-  { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", tier: "Paid" as const },
-  { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", tier: "Free" as const },
+// Model categories
+type ModelCategory = "chat" | "image" | "multimodal"
+
+interface GeminiModelConfig {
+  id: string
+  name: string
+  tier: "Free" | "Paid"
+  category: ModelCategory
+}
+
+// Gemini Chat Models
+const GEMINI_CHAT_MODELS: GeminiModelConfig[] = [
+  { id: "auto", name: "Auto (Best Model)", tier: "Free", category: "chat" },
+  { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview", tier: "Paid", category: "chat" },
+  { id: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview", tier: "Free", category: "chat" },
+  { id: "gemini-3.1-flash-lite-preview", name: "Gemini 3.1 Flash Lite", tier: "Free", category: "chat" },
+  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", tier: "Paid", category: "chat" },
+  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", tier: "Free", category: "chat" },
+  { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", tier: "Free", category: "chat" },
+  { id: "gemini-2.5-flash-live", name: "Gemini 2.5 Flash Live", tier: "Free", category: "chat" },
 ]
+
+// Gemini Image Models
+const GEMINI_IMAGE_MODELS: GeminiModelConfig[] = [
+  { id: "auto-image", name: "Auto (Best Image)", tier: "Free", category: "image" },
+  { id: "gemini-3.1-flash-image", name: "Gemini 3.1 Flash Image", tier: "Paid", category: "image" },
+  { id: "imagen-4", name: "Imagen 4", tier: "Paid", category: "image" },
+]
+
+// Gemini Multimodal Models
+const GEMINI_MULTIMODAL_MODELS: GeminiModelConfig[] = [
+  { id: "auto-multimodal", name: "Auto (Best Multimodal)", tier: "Free", category: "multimodal" },
+  { id: "gemini-embedding-2-preview", name: "Gemini Embedding 2", tier: "Paid", category: "multimodal" },
+  { id: "veo-3.1-preview", name: "Veo 3.1 Preview", tier: "Paid", category: "multimodal" },
+]
+
+// Combined for legacy compatibility
+const GEMINI_MODELS = GEMINI_CHAT_MODELS.filter(m => !m.id.startsWith("auto"))
 
 const ADMIN_ROLES = ["super_admin", "admin"]
 
@@ -557,35 +588,105 @@ export default function SettingsPage() {
                 <StatusMessage status={geminiKeyStatus} />
               </div>
 
-              {/* Model selection */}
-              <div className="mt-6">
-                <h4 className="text-[13px] font-semibold text-foreground mb-3">Available Models</h4>
-                <div className="space-y-2">
-                  {GEMINI_MODELS.map(model => (
-                    <button
-                      key={model.id}
-                      disabled={!canEdit}
-                      onClick={() => saveGeminiModel(model.id)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border transition-all text-left ${
-                        selectedGeminiModel === model.id
-                          ? "border-amber-500/50 bg-amber-500/10"
-                          : "border-border bg-muted/20 hover:border-border/80 hover:bg-muted/30"
-                      } disabled:cursor-not-allowed`}
-                    >
-                      <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
-                        selectedGeminiModel === model.id ? "border-amber-500" : "border-muted-foreground/40"
-                      }`}>
+              {/* Model selection - categorized */}
+              <div className="mt-6 space-y-6">
+                {/* Chat Models */}
+                <div>
+                  <h4 className="text-[13px] font-semibold text-foreground mb-3 flex items-center gap-2">
+                    <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
+                    Chat Models
+                  </h4>
+                  <div className="space-y-2">
+                    {GEMINI_CHAT_MODELS.map(model => (
+                      <button
+                        key={model.id}
+                        disabled={!canEdit}
+                        onClick={() => saveGeminiModel(model.id)}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border transition-all text-left ${
+                          selectedGeminiModel === model.id
+                            ? "border-amber-500/50 bg-amber-500/10"
+                            : "border-border bg-muted/20 hover:border-border/80 hover:bg-muted/30"
+                        } disabled:cursor-not-allowed`}
+                      >
+                        <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                          selectedGeminiModel === model.id ? "border-amber-500" : "border-muted-foreground/40"
+                        }`}>
+                          {selectedGeminiModel === model.id && (
+                            <div className="w-2 h-2 rounded-full bg-amber-500" />
+                          )}
+                        </div>
+                        <span className="flex-1 text-[13px] text-foreground">{model.name}</span>
+                        <TierBadge tier={model.tier} />
                         {selectedGeminiModel === model.id && (
-                          <div className="w-2 h-2 rounded-full bg-amber-500" />
+                          <span className="text-[10px] text-amber-400 font-medium">Default</span>
                         )}
-                      </div>
-                      <span className="flex-1 text-[13px] text-foreground">{model.name}</span>
-                      <TierBadge tier={model.tier} />
-                      {selectedGeminiModel === model.id && (
-                        <span className="text-[10px] text-amber-400 font-medium">Default</span>
-                      )}
-                    </button>
-                  ))}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Image Models */}
+                <div>
+                  <h4 className="text-[13px] font-semibold text-foreground mb-3 flex items-center gap-2">
+                    <Zap className="w-3.5 h-3.5 text-blue-400" />
+                    Image Models
+                  </h4>
+                  <div className="space-y-2">
+                    {GEMINI_IMAGE_MODELS.map(model => (
+                      <button
+                        key={model.id}
+                        disabled={!canEdit}
+                        onClick={() => saveGeminiModel(model.id)}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border transition-all text-left ${
+                          selectedGeminiModel === model.id
+                            ? "border-blue-500/50 bg-blue-500/10"
+                            : "border-border bg-muted/20 hover:border-border/80 hover:bg-muted/30"
+                        } disabled:cursor-not-allowed`}
+                      >
+                        <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                          selectedGeminiModel === model.id ? "border-blue-500" : "border-muted-foreground/40"
+                        }`}>
+                          {selectedGeminiModel === model.id && (
+                            <div className="w-2 h-2 rounded-full bg-blue-500" />
+                          )}
+                        </div>
+                        <span className="flex-1 text-[13px] text-foreground">{model.name}</span>
+                        <TierBadge tier={model.tier} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Multimodal Models */}
+                <div>
+                  <h4 className="text-[13px] font-semibold text-foreground mb-3 flex items-center gap-2">
+                    <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+                    Multimodal Models
+                  </h4>
+                  <div className="space-y-2">
+                    {GEMINI_MULTIMODAL_MODELS.map(model => (
+                      <button
+                        key={model.id}
+                        disabled={!canEdit}
+                        onClick={() => saveGeminiModel(model.id)}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border transition-all text-left ${
+                          selectedGeminiModel === model.id
+                            ? "border-emerald-500/50 bg-emerald-500/10"
+                            : "border-border bg-muted/20 hover:border-border/80 hover:bg-muted/30"
+                        } disabled:cursor-not-allowed`}
+                      >
+                        <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                          selectedGeminiModel === model.id ? "border-emerald-500" : "border-muted-foreground/40"
+                        }`}>
+                          {selectedGeminiModel === model.id && (
+                            <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                          )}
+                        </div>
+                        <span className="flex-1 text-[13px] text-foreground">{model.name}</span>
+                        <TierBadge tier={model.tier} />
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </SectionCard>

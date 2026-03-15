@@ -13,6 +13,7 @@ type DocPage = {
   tags: string[]
   updatedAt: Date
   progress: "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED"
+  authorName: string | null
 }
 
 export default async function DocsPage() {

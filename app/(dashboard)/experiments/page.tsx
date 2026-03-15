@@ -178,7 +178,16 @@ export default function ExperimentsPage() {
                     </div>
                   )}
 
-                  <p className="text-[11px] text-muted-foreground">Created {formatDate(exp.createdAt)}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] text-muted-foreground">Created {formatDate(exp.createdAt)}</p>
+                    <Link
+                      href={`/experiments/${exp.id}`}
+                      className="text-[12px] text-amber-400 hover:text-amber-300 transition-colors"
+                      onClick={e => e.stopPropagation()}
+                    >
+                      View Details
+                    </Link>
+                  </div>
                 </div>
               )}
             </div>

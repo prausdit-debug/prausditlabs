@@ -99,9 +99,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             enableSystem
             disableTransitionOnChange
           >
-            <a href="#main-content" className="skip-link">
-              Skip to main content
-            </a>
             {children}
           </ThemeProvider>
         </body>

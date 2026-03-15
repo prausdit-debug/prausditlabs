@@ -172,7 +172,7 @@ export default function DatasetsPage() {
           </div>
         )}
         {filtered.map(dataset => (
-          <div key={dataset.id} className="rounded-xl border border-border bg-card p-5 card-hover">
+          <Link href={`/datasets/${dataset.id}`} key={dataset.id} className="rounded-xl border border-border bg-card p-5 card-hover block">
             <div className="flex items-start justify-between gap-3 mb-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
@@ -219,13 +219,15 @@ export default function DatasetsPage() {
                 ))}
               </div>
               {dataset.sourceUrl && (
-                <a href={dataset.sourceUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-amber-400 hover:text-amber-300 transition-colors">
+                <span
+                  onClick={(e) => { e.preventDefault(); window.open(dataset.sourceUrl, '_blank') }}
+                  className="text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                >
                   <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+                </span>
               )}
             </div>
-          </div>
+          </Link>
         ))}
       </div>
     </div>

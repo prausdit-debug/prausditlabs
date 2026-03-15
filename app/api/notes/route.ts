@@ -2,13 +2,20 @@ import { NextResponse } from "next/server"
 import { prisma, isDatabaseConfigured } from "@/lib/prisma"
 import { requireWriteAuth } from "@/lib/api-auth"
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!isDatabaseConfigured()) {
     return NextResponse.json([])
   }
 
   try {
-    const notes = await prisma.note.findMany({ orderBy: { updatedAt: "desc" } })
+    // Get projectId from query params
+    const { searchParams } = new URL(request.url)
+    const projectId = searchParams.get("projectId")
+
+    const notes = await prisma.note.findMany({
+      where: projectId ? { projectId } : undefined,
+      orderBy: { updatedAt: "desc" },
+    })
     return NextResponse.json(notes)
   } catch (error) {
     console.error("Notes GET error:", error)
@@ -35,6 +42,10 @@ export async function POST(req: Request) {
         content: body.content,
         tags: body.tags || [],
         pinned: body.pinned || false,
+        projectId: body.projectId || null,
+        createdByUserId: body.createdByUserId || null,
+        createdByUserName: body.createdByUserName || null,
+        createdWithAIModel: body.createdWithAIModel || null,
       },
     })
     return NextResponse.json(note)

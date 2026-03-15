@@ -58,6 +58,10 @@ export async function PATCH(
       ...(body.section && { section: body.section }),
       ...(body.tags && { tags: body.tags }),
       ...(body.progress && { progress: body.progress }),
+      lastEditedByUserId: body.lastEditedByUserId || null,
+      lastEditedByUserName: body.lastEditedByUserName || null,
+      lastEditedAt: new Date(),
+      ...(body.editedWithAIModel && { editedWithAIModel: body.editedWithAIModel }),
     }
   })
 

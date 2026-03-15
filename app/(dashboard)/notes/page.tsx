@@ -191,7 +191,7 @@ export default function NotesPage() {
         <div className="lg:col-span-2">
           {previewNote ? (
             <div className="rounded-xl border border-border bg-card p-6 sticky top-4">
-              <div className="flex items-center justify-between mb-4 pb-4 border-b border-border">
+                <div className="flex items-center justify-between mb-4 pb-4 border-b border-border">
                 <div>
                   <h2 className="text-[16px] font-semibold text-foreground">{previewNote.title}</h2>
                   <p className="text-[12px] text-muted-foreground mt-1">
@@ -199,12 +199,20 @@ export default function NotesPage() {
                     {previewNote.pinned && <span className="ml-2 text-amber-400">· Pinned</span>}
                   </p>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  {previewNote.tags.map(tag => (
-                    <span key={tag} className="text-[11px] px-2 py-0.5 rounded bg-muted text-muted-foreground flex items-center gap-1">
-                      <Tag className="w-2.5 h-2.5" />{tag}
-                    </span>
-                  ))}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    {previewNote.tags.map(tag => (
+                      <span key={tag} className="text-[11px] px-2 py-0.5 rounded bg-muted text-muted-foreground flex items-center gap-1">
+                        <Tag className="w-2.5 h-2.5" />{tag}
+                      </span>
+                    ))}
+                  </div>
+                  <Link
+                    href={`/notes/${previewNote.id}`}
+                    className="text-[12px] text-amber-400 hover:text-amber-300 transition-colors"
+                  >
+                    Open Full View
+                  </Link>
                 </div>
               </div>
               <div className="max-h-[600px] overflow-y-auto">
