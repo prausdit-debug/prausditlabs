@@ -1,7 +1,12 @@
 // prisma/schema.prisma
-// Prisma ORM v7 — url/directUrl moved to prisma.config.ts (not allowed in schema)
+// Prisma ORM v7 — url/directUrl moved to prisma.config.ts
+//
+// IMPORTANT: provider = "prisma-client-js" is intentional even on Prisma v7.
+// The newer "prisma-client" provider causes Turbopack module resolution failures
+// in Next.js 16. Using "prisma-client-js" generates the identical client with a
+// file structure that Turbopack resolves correctly at build time.
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../generated/prisma/client"
 }
 
@@ -21,14 +26,14 @@ enum UserRole {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  clerkId   String   @unique
-  email     String   @unique
+  id        String    @id @default(cuid())
+  clerkId   String    @unique
+  email     String    @unique
   name      String?
   imageUrl  String?
-  role      UserRole @default(user)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  role      UserRole  @default(user)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   projects  Project[] @relation("ProjectCreator")
 
   @@index([clerkId])
@@ -59,14 +64,13 @@ model Project {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
-  // Relations to project-scoped entities
-  datasets       Dataset[]
-  experiments    Experiment[]
-  documentation  DocumentationPage[]
-  roadmapSteps   RoadmapStep[]
-  notes          Note[]
-  modelVersions  ModelVersion[]
-  chatSessions   ChatSession[]
+  datasets      Dataset[]
+  experiments   Experiment[]
+  documentation DocumentationPage[]
+  roadmapSteps  RoadmapStep[]
+  notes         Note[]
+  modelVersions ModelVersion[]
+  chatSessions  ChatSession[]
 
   @@index([createdById])
   @@index([type])
@@ -78,33 +82,30 @@ model Project {
 // ---------------------------------------------
 
 model RoadmapStep {
-  id                  String      @id @default(cuid())
+  id                  String       @id @default(cuid())
   phase               Int
   title               String
-  description         String      @db.Text
-  status              StepStatus  @default(PENDING)
-  order               Int         @default(0)
+  description         String       @db.Text
+  status              StepStatus   @default(PENDING)
+  order               Int          @default(0)
   priority            String?
   milestone           String?
   estimatedCompletion DateTime?
-  progressPercent     Int         @default(0)
+  progressPercent     Int          @default(0)
   tasks               RoadmapTask[]
   projectId           String?
-  project             Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project             Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  // Author tracking
-  createdByUserId     String?
-  createdByUserName   String?
-  createdWithAIModel  String?
-
-  // Edit attribution
+  createdByUserId      String?
+  createdByUserName    String?
+  createdWithAIModel   String?
   lastEditedByUserId   String?
   lastEditedByUserName String?
   lastEditedAt         DateTime?
   editedWithAIModel    String?
 
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([phase])
   @@index([status])
@@ -134,31 +135,28 @@ enum StepStatus {
 // ---------------------------------------------
 
 model DocumentationPage {
-  id          String       @id @default(cuid())
-  title       String
-  slug        String       @unique
-  content     String       @db.Text
-  section     String
-  order       Int          @default(0)
-  tags        String[]
-  progress    DocProgress  @default(NOT_STARTED)
-  versions    DocVersion[]
-  projectId   String?
-  project     Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        String      @id @default(cuid())
+  title     String
+  slug      String      @unique
+  content   String      @db.Text
+  section   String
+  order     Int         @default(0)
+  tags      String[]
+  progress  DocProgress @default(NOT_STARTED)
+  versions  DocVersion[]
+  projectId String?
+  project   Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  // Author tracking
-  createdByUserId     String?
-  createdByUserName   String?
-  createdWithAIModel  String?
-
-  // Edit attribution
+  createdByUserId      String?
+  createdByUserName    String?
+  createdWithAIModel   String?
   lastEditedByUserId   String?
   lastEditedByUserName String?
   lastEditedAt         DateTime?
   editedWithAIModel    String?
 
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([section])
   @@index([slug])
@@ -202,19 +200,16 @@ model Dataset {
   projectId        String?
   project          Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  // Author tracking
-  createdByUserId     String?
-  createdByUserName   String?
-  createdWithAIModel  String?
-
-  // Edit attribution
+  createdByUserId      String?
+  createdByUserName    String?
+  createdWithAIModel   String?
   lastEditedByUserId   String?
   lastEditedByUserName String?
   lastEditedAt         DateTime?
   editedWithAIModel    String?
 
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([datasetType])
   @@index([preprocessStatus])
@@ -267,19 +262,16 @@ model Experiment {
   projectId     String?
   project       Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  // Author tracking
-  createdByUserId     String?
-  createdByUserName   String?
-  createdWithAIModel  String?
-
-  // Edit attribution
+  createdByUserId      String?
+  createdByUserName    String?
+  createdWithAIModel   String?
   lastEditedByUserId   String?
   lastEditedByUserName String?
   lastEditedAt         DateTime?
   editedWithAIModel    String?
 
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([datasetId])
@@ -331,19 +323,16 @@ model ModelVersion {
   projectId        String?
   project          Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  // Author tracking
-  createdByUserId     String?
-  createdByUserName   String?
-  createdWithAIModel  String?
-
-  // Edit attribution
+  createdByUserId      String?
+  createdByUserName    String?
+  createdWithAIModel   String?
   lastEditedByUserId   String?
   lastEditedByUserName String?
   lastEditedAt         DateTime?
   editedWithAIModel    String?
 
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([version])
   @@index([experimentId])
@@ -388,12 +377,9 @@ model Note {
   projectId String?
   project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  // Author tracking
-  createdByUserId     String?
-  createdByUserName   String?
-  createdWithAIModel  String?
-
-  // Edit attribution
+  createdByUserId      String?
+  createdByUserName    String?
+  createdWithAIModel   String?
   lastEditedByUserId   String?
   lastEditedByUserName String?
   lastEditedAt         DateTime?
