@@ -25,18 +25,13 @@ function sleep(ms: number) {
 async function pushSchema(attempt: number): Promise<boolean> {
   console.log(`[setup-database] prisma db push — attempt ${attempt}/${MAX_RETRIES}`)
   try {
-    execSync(
-      // NOTE: Prisma v7 removed --skip-generate. Use only --accept-data-loss.
-      // The --url flag overrides the datasource URL from prisma.config.ts.
-      `npx prisma db push --accept-data-loss --url="${DATABASE_URL}"`,
-      {
-        stdio: "inherit",
-        env: {
-          ...process.env,
-          DATABASE_URL: DATABASE_URL!,
-        },
-      }
-    )
+    execSync("npx prisma db push --accept-data-loss", {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        DATABASE_URL: DATABASE_URL,
+      },
+    })
     return true
   } catch {
     return false
