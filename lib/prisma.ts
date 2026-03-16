@@ -39,12 +39,12 @@
 
 // ─── Lazy type references (avoids import-before-generate errors) ──────────────
 
-let PrismaClient: typeof import("../generated/prisma/client").PrismaClient
+let PrismaClient: typeof import("../generated/prisma").PrismaClient
 let PrismaPg: typeof import("@prisma/adapter-pg").PrismaPg
 
 // ─── Exported types ───────────────────────────────────────────────────────────
 
-export type PrismaClientType = import("../generated/prisma/client").PrismaClient
+export type PrismaClientType = import("../generated/prisma").PrismaClient
 
 // ─── URL resolution ───────────────────────────────────────────────────────────
 
@@ -157,11 +157,11 @@ function buildPoolConfig(): Record<string, unknown> {
 
 let PRISMA_CLIENT_AVAILABLE = false
 try {
-  require.resolve("../generated/prisma/client")
+  require.resolve("../generated/prisma")
   PRISMA_CLIENT_AVAILABLE = true
 } catch {
   console.warn(
-    "[Prisma] Generated client not found at ../generated/prisma/client.\n" +
+    "[Prisma] Generated client not found at ../generated/prisma.\n" +
       "  Run 'npx prisma generate' to create it. This is expected before the first build."
   )
 }
@@ -177,7 +177,7 @@ function createPrismaClient(): PrismaClientType {
 
   if (!PrismaClient) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require("../generated/prisma/client")
+    const mod = require("../generated/prisma")
     PrismaClient = mod.PrismaClient
   }
   if (!PrismaPg) {

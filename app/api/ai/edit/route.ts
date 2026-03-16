@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { streamText } from "ai"
+import { generateText } from "ai"
 import { gateway } from "@ai-sdk/gateway"
 
 export async function POST(req: Request) {
@@ -13,7 +13,7 @@ export async function POST(req: Request) {
       )
     }
 
-    const { text: result } = await streamText({
+    const { text: result } = await generateText({
       model: gateway("google/gemini-2.5-flash-preview-05-20"),
       system: `You are a helpful writing assistant. Your task is to edit text according to the user's instructions.
 Return ONLY the edited text without any explanations, comments, or formatting markers.
@@ -29,13 +29,7 @@ Instructions: ${instruction}
 Please provide the edited version:`,
     })
 
-    // Collect the full response
-    let fullText = ""
-    for await (const chunk of result) {
-      fullText += chunk
-    }
-
-    return NextResponse.json({ result: fullText.trim() })
+    return NextResponse.json({ result: result.trim() })
   } catch (error) {
     console.error("AI edit error:", error)
     return NextResponse.json(
