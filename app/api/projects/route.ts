@@ -83,6 +83,7 @@ export async function POST(req: Request) {
         description: description || null,
         config: config || null,
         createdById: user.id,
+        createdByName: user.name || user.email,
       },
       include: {
         createdBy: {
@@ -96,4 +97,4 @@ export async function POST(req: Request) {
     console.error("POST /api/projects error:", err)
     return NextResponse.json({ error: "Failed to create project" }, { status: 500 })
   }
-}
+      }
