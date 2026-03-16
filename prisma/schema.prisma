@@ -2,8 +2,9 @@
 // Prisma ORM v7 — url/directUrl moved to prisma.config.ts (not allowed in schema)
 // Generator uses "prisma-client" with explicit output path (required in v7)
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider            = "prisma-client"
+  output              = "../generated/prisma"
+  importFileExtension = "ts"
 }
 
 datasource db {
