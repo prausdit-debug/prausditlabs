@@ -1,23 +1,20 @@
 /**
- * lib/prisma.ts — Prisma ORM v7 singleton for Vercel + any PostgreSQL provider
- * ─────────────────────────────────────────────────────────────────────────────
- * Prisma v7 notes:
- *   - Generator uses "prisma-client-js" which outputs to node_modules/.prisma/client
- *   - This enables Turbopack compatibility (imports from @prisma/client work naturally)
- *   - URL / directUrl are configured in prisma.config.ts
- *   - We use @prisma/adapter-pg for the pg driver adapter
+ * lib/prisma.ts
+ * Prisma ORM v7 singleton - works with any PostgreSQL provider.
  *
- * Connection priority: DATABASE_URL → POSTGRES_URL → POSTGRES_PRISMA_URL
+ * SSL is controlled by the sslmode param in your DATABASE_URL:
+ *   sslmode=disable     -> no SSL (local/Docker)
+ *   sslmode=require     -> SSL, no cert verification (NeonDB, Nile, Supabase, Railway, etc.)
+ *   sslmode=verify-full -> SSL + full cert verification (CockroachDB, strict AWS RDS)
+ *   (absent)            -> tries SSL without cert verification (safe default for cloud)
+ *
+ * URL priority: DATABASE_URL -> POSTGRES_URL -> POSTGRES_PRISMA_URL
  */
 
-import { PrismaClient } from "@prisma/client"
-import { PrismaPg } from "@prisma/adapter-pg"
+let PrismaClient: typeof import("../generated/prisma/client").PrismaClient
+let PrismaPg: typeof import("@prisma/adapter-pg").PrismaPg
 
-// ─── Exported types ───────────────────────────────────────────────────────────
-
-export type PrismaClientType = InstanceType<typeof PrismaClient>
-
-// ─── URL resolution ───────────────────────────────────────────────────────────
+export type PrismaClientType = import("../generated/prisma/client").PrismaClient
 
 function getDatabaseUrl(): string | null {
   return (
@@ -31,8 +28,6 @@ function getDatabaseUrl(): string | null {
 const DATABASE_URL = getDatabaseUrl()
 const IS_DATABASE_CONFIGURED = !!DATABASE_URL
 
-// ─── SSL config derived from sslmode in the URL ───────────────────────────────
-
 function buildSslConfig(
   sslmode: string | null
 ): false | { rejectUnauthorized: boolean } | undefined {
@@ -41,18 +36,17 @@ function buildSslConfig(
       return false
     case "allow":
     case "prefer":
-      return { rejectUnauthorized: false }
     case "require":
       return { rejectUnauthorized: false }
     case "verify-ca":
     case "verify-full":
       return { rejectUnauthorized: true }
     default:
+      // No sslmode in URL: default to SSL without cert verification.
+      // Works for all major cloud providers without extra config.
       return { rejectUnauthorized: false }
   }
 }
-
-// ─── Build pg PoolConfig from URL ────────────────────────────────────────────
 
 function buildPoolConfig(): Record<string, unknown> {
   if (!DATABASE_URL) {
@@ -67,7 +61,7 @@ function buildPoolConfig(): Record<string, unknown> {
     parsed = new URL(DATABASE_URL)
   } catch {
     throw new Error(
-      `[Prisma] DATABASE_URL is not a valid URL: "${DATABASE_URL.slice(0, 60)}..."\n` +
+      "[Prisma] DATABASE_URL is not a valid URL: \"" + DATABASE_URL.slice(0, 60) + "...\"\n" +
         "  Expected format: postgresql://user:password@host:5432/dbname?sslmode=require"
     )
   }
@@ -87,29 +81,50 @@ function buildPoolConfig(): Record<string, unknown> {
   }
 
   if (ssl !== undefined) {
-    config.ssl = ssl === false ? false : ssl
+    config.ssl = ssl
   }
 
   return config
 }
 
-// ─── Client factory ───────────────────────────────────────────────────────────
+let PRISMA_CLIENT_AVAILABLE = false
+try {
+  require.resolve("../generated/prisma/client")
+  PRISMA_CLIENT_AVAILABLE = true
+} catch {
+  console.warn(
+    "[Prisma] Generated client not found at ../generated/prisma/client. " +
+      "Run 'npx prisma generate' to create it."
+  )
+}
 
 function createPrismaClient(): PrismaClientType {
+  if (!PRISMA_CLIENT_AVAILABLE) {
+    throw new Error(
+      "[Prisma] Generated client not found. Run 'npx prisma generate' first."
+    )
+  }
+
+  if (!PrismaClient) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require("../generated/prisma/client")
+    PrismaClient = mod.PrismaClient
+  }
+  if (!PrismaPg) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require("@prisma/adapter-pg")
+    PrismaPg = mod.PrismaPg
+  }
+
   const poolConfig = buildPoolConfig()
 
   if (process.env.NODE_ENV === "development") {
-    const maskedConfig = {
-      ...poolConfig,
-      password: poolConfig.password ? "****" : undefined,
-    }
-    console.log("[Prisma] Creating client with config:", JSON.stringify(maskedConfig))
+    const masked = { ...poolConfig, password: poolConfig.password ? "****" : undefined }
+    console.log("[Prisma] Creating client:", JSON.stringify(masked))
   }
 
   return new PrismaClient({
-    adapter: new PrismaPg(
-      poolConfig as ConstructorParameters<typeof PrismaPg>[0]
-    ),
+    adapter: new PrismaPg(poolConfig as ConstructorParameters<typeof PrismaPg>[0]),
     log:
       process.env.NODE_ENV === "development"
         ? ["query", "error", "warn"]
@@ -117,24 +132,21 @@ function createPrismaClient(): PrismaClientType {
   })
 }
 
-// ─── Fallback stub (no DB configured) ────────────────────────────────────────
-
 function createStubClient(): PrismaClientType {
-  const reason =
-    "No database URL configured. Set DATABASE_URL (or POSTGRES_URL / POSTGRES_PRISMA_URL)."
+  const reason = !IS_DATABASE_CONFIGURED
+    ? "No database URL configured. Set DATABASE_URL (or POSTGRES_URL / POSTGRES_PRISMA_URL)."
+    : "Generated Prisma client not found. Run 'npx prisma generate' first."
 
   return new Proxy({} as PrismaClientType, {
     get(_target, prop) {
-      if (prop === "then" || prop === "catch" || prop === "finally") {
-        return undefined
-      }
+      if (prop === "then" || prop === "catch" || prop === "finally") return undefined
       if (typeof prop === "string" && !prop.startsWith("_")) {
         return new Proxy(() => {}, {
           get() {
-            throw new Error(`[Prisma] ${reason} Cannot access prisma.${prop}.`)
+            throw new Error("[Prisma] " + reason + " Cannot access prisma." + String(prop) + ".")
           },
           apply() {
-            throw new Error(`[Prisma] ${reason} Cannot call prisma.${prop}().`)
+            throw new Error("[Prisma] " + reason + " Cannot call prisma." + String(prop) + "().")
           },
         })
       }
@@ -143,14 +155,12 @@ function createStubClient(): PrismaClientType {
   })
 }
 
-// ─── Singleton ────────────────────────────────────────────────────────────────
-
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClientType | undefined
 }
 
 function getPrismaClient(): PrismaClientType {
-  if (!IS_DATABASE_CONFIGURED) {
+  if (!IS_DATABASE_CONFIGURED || !PRISMA_CLIENT_AVAILABLE) {
     return createStubClient()
   }
   if (!globalForPrisma.prisma) {
@@ -165,23 +175,17 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma
 }
 
-// ─── Public helpers ───────────────────────────────────────────────────────────
-
-/** Returns true when the database URL is set. */
 export function isDatabaseConfigured(): boolean {
-  return IS_DATABASE_CONFIGURED
+  return IS_DATABASE_CONFIGURED && PRISMA_CLIENT_AVAILABLE
 }
 
-/**
- * Wraps a database operation and returns null instead of throwing when the
- * database is not configured.
- */
 export async function withDatabase<T>(
   operation: () => Promise<T>
 ): Promise<T | null> {
   if (!IS_DATABASE_CONFIGURED) {
     console.warn(
-      "[Prisma] Database operation skipped — no database URL configured."
+      "[Prisma] Database operation skipped - no database URL configured. " +
+        "Set DATABASE_URL (or POSTGRES_URL / POSTGRES_PRISMA_URL) to enable database features."
     )
     return null
   }
