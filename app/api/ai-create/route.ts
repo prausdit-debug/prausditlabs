@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { GoogleGenAI } from "@google/genai"
 import { requireWriteAuth } from "@/lib/api-auth"
+import { prisma } from "@/lib/prisma"
 
 const SCHEMAS: Record<string, string> = {
   document: JSON.stringify({
@@ -46,7 +47,6 @@ export async function POST(req: Request) {
     const body = await req.json()
     const { type, title, ...extra } = body
 
-    const { prisma } = await import("@/lib/prisma")
     const aiSettings = await prisma.aISettings.findFirst().catch(() => null)
     const apiKey = aiSettings?.geminiApiKey || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GEMINI_API_KEY
     if (!apiKey) {
@@ -103,4 +103,5 @@ For HTML content fields, use proper HTML tags: <h1>, <h2>, <h3>, <p>, <ul>, <li>
     console.error("AI create error:", err)
     return NextResponse.json({ error: "AI generation failed" }, { status: 500 })
   }
-}
+      }
+  
