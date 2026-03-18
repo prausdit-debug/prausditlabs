@@ -56,7 +56,7 @@ model Project {
   id            String      @id @default(cuid())
   name          String
   type          ProjectType
-  description   String?     @db.Text
+  description   String?     
   config        Json?
   createdById   String
   createdByName String?
@@ -85,7 +85,7 @@ model RoadmapStep {
   id                  String       @id @default(cuid())
   phase               Int
   title               String
-  description         String       @db.Text
+  description         String       
   status              StepStatus   @default(PENDING)
   order               Int          @default(0)
   priority            String?
@@ -138,7 +138,7 @@ model DocumentationPage {
   id        String      @id @default(cuid())
   title     String
   slug      String      @unique
-  content   String      @db.Text
+  content   String     
   section   String
   order     Int         @default(0)
   tags      String[]
@@ -171,7 +171,7 @@ enum DocProgress {
 
 model DocVersion {
   id        String            @id @default(cuid())
-  content   String            @db.Text
+  content   String            
   version   Int
   pageId    String
   page      DocumentationPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
@@ -187,7 +187,7 @@ model DocVersion {
 model Dataset {
   id               String        @id @default(cuid())
   name             String
-  description      String?       @db.Text
+  description      String?       
   sourceUrl        String?
   datasetType      DatasetType
   numSamples       Int?
@@ -240,13 +240,13 @@ enum PreprocStatus {
 model Experiment {
   id            String           @id @default(cuid())
   name          String
-  description   String?          @db.Text
+  description   String?          
   baseModel     String
   datasetId     String?
   dataset       Dataset?         @relation(fields: [datasetId], references: [id])
   status        ExperimentStatus @default(PENDING)
   method        String?
-  resultSummary String?          @db.Text
+  resultSummary String?          
   config        Json?
   loraRank      Int?
   loraAlpha     Int?
@@ -307,7 +307,7 @@ model ModelVersion {
   id               String            @id @default(cuid())
   name             String
   version          String
-  description      String?           @db.Text
+  description      String?           
   parameterCount   BigInt?
   experimentId     String?
   experiment       Experiment?       @relation(fields: [experimentId], references: [id])
@@ -319,7 +319,7 @@ model ModelVersion {
   mmluScore        Float?
   fileSizeBytes    BigInt?
   isDeployed       Boolean           @default(false)
-  notes            String?           @db.Text
+  notes            String?           
   projectId        String?
   project          Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -355,9 +355,9 @@ enum QuantizationType {
 model AISettings {
   id                       String   @id @default(cuid())
   defaultProvider          String   @default("gemini")
-  geminiApiKey             String?  @db.Text
+  geminiApiKey             String?  
   geminiDefaultModel       String   @default("gemini-2.5-flash")
-  openrouterApiKey         String?  @db.Text
+  openrouterApiKey         String?  
   selectedOpenRouterModels String[] @default([])
   updatedBy                String?
   createdAt                DateTime @default(now())
@@ -371,7 +371,7 @@ model AISettings {
 model Note {
   id        String   @id @default(cuid())
   title     String
-  content   String   @db.Text
+  content   String   
   tags      String[]
   pinned    Boolean  @default(false)
   projectId String?
@@ -424,7 +424,7 @@ model ChatMessage {
   sessionId String
   session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   role      String
-  content   String      @db.Text
+  content   String      
   metadata  Json?
   createdAt DateTime    @default(now())
 
