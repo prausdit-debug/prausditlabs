@@ -362,6 +362,15 @@ model AISettings {
   updatedBy                String?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
+  
+  tavilyApiKey           String?
+  braveApiKey            String?
+  serpApiKey             String?
+  firecrawlApiKey        String?
+  crawl4aiUrl            String?
+  cloudinaryCloudName    String?
+  cloudinaryUploadPreset String?
+  cloudinaryApiKey       String?
 }
 
 // ---------------------------------------------
@@ -431,3 +440,44 @@ model ChatMessage {
   @@index([sessionId])
   @@index([createdAt])
 }
+
+
+// AGENT FILES — Multi-file agent config system
+
+enum AgentFileType {
+  system   // Replaces/extends the base system prompt
+  rules    // Injected as additional behavioral rules
+  tools    // Tool configuration/overrides
+}
+
+model AgentFile {
+  id        String        @id @default(cuid())
+  name      String                            // Display name, e.g. "Core Rules"
+  type      AgentFileType @default(rules)
+  content   String                            // Markdown content
+  isActive  Boolean       @default(true)
+  order     Int           @default(0)         // Injection order (lower = first)
+  history   AgentFileHistory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([isActive])
+  @@index([order])
+}
+
+model AgentFileHistory {
+  id        String    @id @default(cuid())
+  fileId    String
+  file      AgentFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  content   String                            // Snapshot of content before update
+  version   Int                               // Auto-incrementing version number
+  savedBy   String?                           // User who triggered the save
+  createdAt DateTime  @default(now())
+
+  @@index([fileId])
+  @@index([createdAt])
+}
+
+//END

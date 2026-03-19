@@ -2,33 +2,11 @@
  * Prausdit Research Lab — Agent Engine
  * AI SDK 6.x (March 2026) — npm package "ai" latest: 6.0.116
  *
- * Architecture:
- *   User Message
- *     → Context injection (knowledge graph + history)
- *     → Model routing (Gemini / OpenRouter via AI Gateway)
- *     → Reasoning loop (streamText + maxSteps)
- *     → Tool router (CRM APIs via Prisma)
- *     → SSE stream to UI
- *
- * Supports workflows:
- *   - Documentation automation
- *   - Roadmap autopilot
- *   - Dataset intelligence
- *   - Experiment planning
- *   - Model benchmarking
- *   - Research autopilot
- *   - Web research
- *
- * Stream SSE format:
- *   { type: "status",      text, step }
- *   { type: "tool_call",   tool, text, args, step }
- *   { type: "tool_result", tool, text, result, step }
- *   { type: "text",        text }
- *   { type: "done" }
- *   { type: "error",       text }
- *
- * NOTE: toolCallStreaming option was REMOVED in AI SDK 5.0+
- *       Tool call streaming is now always enabled by default.
+ * UPGRADED:
+ *   - Planning-first system prompt with HITL rules
+ *   - Loads active AgentFiles from DB and injects into system prompt
+ *   - New TOOL_LABELS for research, planning, image upload
+ *   - Updated workflow intent detection
  */
 
 import { streamText, stepCountIs } from "ai"
@@ -49,121 +27,202 @@ export interface AgentOptions {
   history: AgentMessage[]
   provider: "gemini" | "openrouter"
   model: string
-  /** Optional: inject pre-built context (for workflow triggers) */
   systemContext?: string
 }
 
-// ─── System Prompt ────────────────────────────────────────────────────────────
+// ─── Active Agent File Loader ─────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are **Prausdit Lab Agent** — the autonomous AI brain of the Prausdit Research Lab.
+interface AgentFileSection {
+  system:  string[]  // type === "system"
+  rules:   string[]  // type === "rules"
+  tools:   string[]  // type === "tools"
+}
 
-You operate as a reasoning agent that thinks step by step, calls tools to interact with the CRM, and completes complex research workflows autonomously.
+async function loadActiveAgentFiles(): Promise<AgentFileSection> {
+  const sections: AgentFileSection = { system: [], rules: [], tools: [] }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const files = await (prisma as any).agentFile.findMany({
+      where: { isActive: true },
+      select: { name: true, type: true, content: true },
+      orderBy: { createdAt: "asc" },
+    })
+    for (const file of files as Array<{ name: string; type: string; content: string }>) {
+      const type = file.type as keyof AgentFileSection
+      if (sections[type] !== undefined) {
+        sections[type].push(`<!-- ${file.name} -->\n${file.content}`)
+      }
+    }
+  } catch {
+    // AgentFile table may not exist yet — graceful fallback to base prompt
+  }
+  return sections
+}
+
+// ─── Base System Prompt ───────────────────────────────────────────────────────
+
+const BASE_SYSTEM_PROMPT = `You are **Prausdit Lab Agent** — the autonomous AI brain of the Prausdit Research Lab.
+
+You operate as a **planning-first reasoning agent**. You think step by step, create structured plans, wait for human approval, then execute with precision.
 
 ## Mission
-Power the development of **Protroit Agent** (offline-first SLM AI for mobile/edge) and **ProtroitOS** (agentic operating system) by automating research workflows.
+Power development of **Protroit Agent** (offline-first SLM AI for mobile/edge) and **ProtroitOS** (agentic operating system) by automating research workflows.
+
+---
+
+## 🧠 CORE OPERATING RULES
+
+### Rule 1 — PLAN FIRST, EXECUTE SECOND
+For ANY complex request (multiple creations, research + writing, roadmaps, experiments, etc.):
+1. Use \`research\` if external knowledge is needed
+2. Use \`generate_plan\` to present a structured plan to the user
+3. **WAIT** for explicit approval ("approve", "yes", "go ahead", "proceed")
+4. ONLY THEN execute using CRM tools
+5. Call \`finalize_execution\` when all steps are done
+
+Simple requests (read doc, search KB, single quick answer) do NOT need a plan.
+
+### Rule 2 — RESEARCH VIA \`research\` TOOL ONLY
+- Use \`research\` for all external web research (handles Tavily→Brave→SerpAPI + crawling automatically)
+- Use \`crawl_web\` ONLY for fetching a single specific known URL
+- Never call search/crawl APIs manually
+
+### Rule 3 — IMAGES GO TO CLOUDINARY
+If execution includes images:
+1. Generate or obtain image URL
+2. Call \`upload_image\` → get permanent Cloudinary CDN URL
+3. ONLY store/display Cloudinary URLs in documents/notes
+
+### Rule 4 — SEARCH BEFORE CREATE
+Always \`search_internal_docs\` before creating any entity to avoid duplicates.
+
+### Rule 5 — NEVER SKIP APPROVAL
+If a plan was generated, NEVER execute without seeing explicit approval.
+If user gives feedback → use \`update_plan\` → wait for approval again.
+
+### Rule 6 — ROADMAP PLANNING
+For roadmap creation or large updates:
+1. Generate roadmap plan structure with \`generate_plan\`
+2. Show all phases, tasks, milestones
+3. Wait for approval
+4. Then call \`create_roadmap_step\` for each phase
+
+---
 
 ## Tool Capabilities
 
+### 🔬 Research
+- \`research\` — Unified deep research: Tavily/Brave/SerpAPI + Firecrawl/Crawl4AI fallbacks. **Primary research tool.**
+
+### 📋 Planning (Human-in-the-Loop)
+- \`generate_plan\`     — Create structured plan. Must show to user before executing.
+- \`update_plan\`       — Refine plan after feedback
+- \`approve_plan\`      — Record user approval
+- \`finalize_execution\` — Record completion + Cloudinary uploads
+
+### 🖼️ Images
+- \`upload_image\` — Upload URL → Cloudinary CDN → permanent HTTPS URL
+
 ### Knowledge & RAG
-- \`search_internal_docs\` — Full-text search across docs, experiments, datasets, notes, roadmap, models
-- \`get_knowledge_graph\` — Retrieve entity relationship graph for research context
+- \`search_internal_docs\` — Full-text search across all CRM entities
+- \`get_knowledge_graph\`  — Entity relationship graph
 
 ### Documentation
-- \`read_document\` — Read a full doc page by slug
+- \`read_document\`   — Read page by slug
 - \`create_document\` — Write comprehensive documentation (not placeholders)
-- \`update_document\` — Patch existing documentation
+- \`update_document\` — Patch existing docs
 
 ### Research Notes
-- \`create_note\` — Save research note with Markdown content
-- \`update_note\` — Update existing note
+- \`create_note\` — Save research note
+- \`update_note\` — Update note
 
-### Roadmap Autopilot
-- \`create_roadmap_step\` — Add phase with tasks and milestones
-- \`update_roadmap_step\` — Mark steps complete, update progress
-- \`complete_roadmap_task\` — Check off individual tasks
+### Roadmap
+- \`create_roadmap_step\`   — Add phase with tasks (after plan approval)
+- \`update_roadmap_step\`   — Update progress
+- \`complete_roadmap_task\` — Complete individual tasks
 
-### Experiment Planning
-- \`create_experiment\` — Register ML experiment with full hyperparameter config
-- \`update_experiment\` — Record results, update status
+### Experiments
+- \`create_experiment\` — Register ML experiment
+- \`update_experiment\` — Record results
 
-### Dataset Intelligence
-- \`create_dataset\` — Register dataset with metadata
-- \`update_dataset\` — Update preprocessing status / sample count
-- \`analyze_dataset\` — Full dataset analysis + experiment suggestions
+### Datasets
+- \`create_dataset\`  — Register with metadata
+- \`update_dataset\`  — Update preprocessing status
+- \`analyze_dataset\` — Full analysis + experiment suggestions
 
 ### Model Benchmarking
-- \`benchmark_model\` — Record scores + auto-generate benchmark report doc
-- \`get_model_leaderboard\` — Ranked model comparison table
+- \`benchmark_model\`      — Record scores + generate report
+- \`get_model_leaderboard\` — Ranked model comparison
 
 ### Web Research
-- \`crawl_web\` — Fetch HTTPS pages (papers, docs, GitHub); max 2 URLs/turn
+- \`crawl_web\`              — Fetch single specific URL
+- \`run_research_autopilot\` — Full research planning workflow
 
-### Workflow Orchestration
-- \`run_research_autopilot\` — Execute full research planning workflow for any topic
+---
 
 ## AI Expertise
 - SLMs: TinyLlama, Phi-3-mini, Gemma-2B, Mistral-7B, Qwen-1.5B
 - Training: LoRA, QLoRA, GRPO, full fine-tune with trl/PEFT/transformers
-- Quantization: GGUF, GPTQ, AWQ, INT4/INT8 — for mobile/edge deployment
-- Datasets: JSONL instruction tuning, ShareGPT format, synthetic data generation
+- Quantization: GGUF, GPTQ, AWQ, INT4/INT8 for mobile/edge
+- Datasets: JSONL instruction tuning, ShareGPT format, synthetic data
 - Evaluation: BLEU, HumanEval pass@1, MMLU, MT-Bench
 - Deployment: ONNX, Core ML, TFLite, llama.cpp on mobile
 
-## Rules
-- **Always search before creating** (avoid duplicates)
-- **No shell/filesystem access** — tools only
-- **HTTPS only** for web crawling; max 2 URLs/turn
-- **Be comprehensive** — write real content, not placeholders
-- **Confirm every action** with IDs and links
-- **Think out loud** — explain your reasoning before each tool call
-
 ## Response Style
-Rich Markdown with headings, tables, code blocks. When you create something, always confirm with: Created [Title] (ID: \`xyz\`)`
+Rich Markdown with headings, tables, code blocks. Always confirm created entities with IDs.
+When a plan is generated, present it clearly and ask for approval before proceeding.`
+
+// ─── Build Final System Prompt ────────────────────────────────────────────────
+
+async function buildSystemPrompt(extraContext?: string): Promise<string> {
+  const files = await loadActiveAgentFiles()
+
+  const parts: string[] = []
+
+  // 1. Custom system files override/extend the base (if any)
+  if (files.system.length > 0) {
+    parts.push(files.system.join("\n\n"))
+  } else {
+    parts.push(BASE_SYSTEM_PROMPT)
+  }
+
+  // 2. Active rules files inject additional constraints
+  if (files.rules.length > 0) {
+    parts.push("---\n## Active Rules\n\n" + files.rules.join("\n\n---\n\n"))
+  }
+
+  // 3. Active tools files inject tool definitions/overrides
+  if (files.tools.length > 0) {
+    parts.push("---\n## Tool Configurations\n\n" + files.tools.join("\n\n---\n\n"))
+  }
+
+  // 4. Workflow-specific context
+  if (extraContext) {
+    parts.push("---\n## Active Workflow Context\n\n" + extraContext)
+  }
+
+  return parts.join("\n\n")
+}
 
 // ─── Provider Adapter ─────────────────────────────────────────────────────────
 
 async function getModel(provider: "gemini" | "openrouter", modelId: string) {
-  // Safely fetch settings - handle database unavailability gracefully
   let settings: Awaited<ReturnType<typeof prisma.aISettings.findFirst>> | null = null
   try {
     settings = await prisma.aISettings.findFirst()
   } catch (dbErr) {
-    console.warn("[agent-engine] Could not fetch AI settings from database:", 
-      dbErr instanceof Error ? dbErr.message : String(dbErr))
-    // Continue with environment variables only
+    console.warn("[agent-engine] Could not fetch AI settings:", dbErr instanceof Error ? dbErr.message : String(dbErr))
   }
 
   if (provider === "openrouter") {
     const apiKey = settings?.openrouterApiKey || process.env.OPENROUTER_API_KEY
-    if (!apiKey) {
-      throw new Error(
-        "OpenRouter API key not configured.\n\n" +
-        "To fix this:\n" +
-        "1. Add OPENROUTER_API_KEY to your environment variables, or\n" +
-        "2. Configure it in Settings → Manage API (requires database connection)"
-      )
-    }
-    const openai = createOpenAI({
-      baseURL: "https://openrouter.ai/api/v1",
-      apiKey,
-      headers: {
-        "HTTP-Referer": "https://prausdit.app",
-        "X-Title": "Prausdit Research Lab",
-      },
-    })
+    if (!apiKey) throw new Error("OpenRouter API key not configured.\n\nAdd OPENROUTER_API_KEY to environment variables or configure in Settings → Manage API.")
+    const openai = createOpenAI({ baseURL: "https://openrouter.ai/api/v1", apiKey, headers: { "HTTP-Referer": "https://prausdit.app", "X-Title": "Prausdit Research Lab" } })
     return openai(modelId)
   }
 
-  // Gemini (default)
   const apiKey = settings?.geminiApiKey || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GEMINI_API_KEY
-  if (!apiKey) {
-    throw new Error(
-      "Gemini API key not configured.\n\n" +
-      "To fix this:\n" +
-      "1. Set GOOGLE_API_KEY in your environment variables (get one at https://aistudio.google.com/app/apikey), or\n" +
-      "2. Configure it in Settings → Manage API (requires database connection)"
-    )
-  }
+  if (!apiKey) throw new Error("Gemini API key not configured.\n\nSet GOOGLE_API_KEY in environment variables or configure in Settings → Manage API.")
   const google = createGoogleGenerativeAI({ apiKey })
   return google(modelId)
 }
@@ -171,6 +230,7 @@ async function getModel(provider: "gemini" | "openrouter", modelId: string) {
 // ─── Tool Status Labels ───────────────────────────────────────────────────────
 
 const TOOL_LABELS: Record<string, string> = {
+  // Existing
   search_internal_docs:     "Searching knowledge base",
   get_knowledge_graph:      "Loading knowledge graph",
   read_document:            "Reading documentation",
@@ -190,13 +250,18 @@ const TOOL_LABELS: Record<string, string> = {
   get_model_leaderboard:    "Loading model leaderboard",
   crawl_web:                "Fetching web content",
   run_research_autopilot:   "Running research autopilot",
+  // New
+  research:                 "Researching the web",
+  generate_plan:            "Generating execution plan",
+  update_plan:              "Refining plan",
+  approve_plan:             "Recording plan approval",
+  finalize_execution:       "Finalizing execution & saving report",
+  upload_image:             "Uploading image to Cloudinary",
 }
 
 // ─── Workflow Intent Detection ────────────────────────────────────────────────
 
 function detectWorkflowIntent(message: string): string {
-  const lower = message.toLowerCase()
-
   if (/start research|research for|research on|investigate/i.test(message))
     return "Research Autopilot activated — analysing knowledge graph and planning research workflow..."
   if (/plan experiments?|create experiments? for|design experiments?/i.test(message))
@@ -213,17 +278,25 @@ function detectWorkflowIntent(message: string): string {
     return "Experiment creation mode — checking related experiments and datasets..."
   if (/\/dataset/i.test(message))
     return "Dataset registration mode — checking for similar datasets..."
-  if (/\/roadmap/i.test(message))
-    return "Roadmap mode — checking existing phases..."
+  if (/\/roadmap|roadmap.*plan|plan.*roadmap/i.test(message))
+    return "Roadmap planner — generating plan structure before creating..."
   if (/\/note/i.test(message))
     return "Research note mode — saving your note..."
   if (/leaderboard|ranking|best model|top model/i.test(message))
     return "Loading model leaderboard..."
-  if (lower.includes("@documentation") || lower.includes("@docs"))
+  // New intent patterns
+  if (/\bresearch\b|find out|look up|search for|investigate/i.test(message))
+    return "Researching... searching web providers with automatic fallback..."
+  if (/\bplan\b|create a plan|build a plan|design a/i.test(message))
+    return "Planning mode — generating structured plan for your approval..."
+  if (/^approve$|^yes$|go ahead|proceed with|execute the plan/i.test(message.trim()))
+    return "Executing approved plan..."
+  if (/upload.*image|image.*cloudinary|store.*image/i.test(message))
+    return "Uploading image to Cloudinary CDN..."
+  if (message.toLowerCase().includes("@documentation") || message.toLowerCase().includes("@docs"))
     return "Fetching referenced documentation..."
-  if (lower.includes("search") || lower.includes("find") || lower.includes("look up"))
+  if (/search|find|look up/i.test(message))
     return "Searching knowledge base..."
-
   return "Agent thinking..."
 }
 
@@ -242,23 +315,18 @@ export function runAgent(options: AgentOptions): ReadableStream<Uint8Array> {
     { role: "user", content: message },
   ]
 
-  // Build system prompt with optional workflow context
-  const systemPrompt = systemContext
-    ? `${SYSTEM_PROMPT}\n\n## Active Workflow Context\n${systemContext}`
-    : SYSTEM_PROMPT
-
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        // Emit initial status based on intent detection
         const initialStatus = detectWorkflowIntent(message)
         controller.enqueue(evt({ type: "status", text: initialStatus, step: 0 }))
+
+        // Build system prompt — loads active agent files from DB
+        const systemPrompt = await buildSystemPrompt(systemContext)
 
         const aiModel = await getModel(provider, model)
         let stepNum = 0
 
-        // AI SDK 6: streamText with maxSteps for multi-step tool execution
-        // NOTE: toolCallStreaming was REMOVED in AI SDK 5+ — it is always on by default
         const result = streamText({
           model: aiModel,
           system: systemPrompt,
@@ -269,40 +337,24 @@ export function runAgent(options: AgentOptions): ReadableStream<Uint8Array> {
           temperature: 0.65,
         })
 
-        // Iterate fullStream for streaming chunks
         for await (const chunk of result.fullStream) {
           try {
             if (chunk.type === "tool-call") {
               stepNum++
               const label = TOOL_LABELS[chunk.toolName] || `Calling ${chunk.toolName}`
-              controller.enqueue(evt({
-                type: "tool_call",
-                tool: chunk.toolName,
-                text: label,
-                args: chunk.input,
-                step: stepNum,
-              }))
+              controller.enqueue(evt({ type: "tool_call", tool: chunk.toolName, text: label, args: chunk.input, step: stepNum }))
             }
-
             if (chunk.type === "tool-result") {
               const resultPreview = typeof chunk.output === "object"
                 ? JSON.stringify(chunk.output).slice(0, 200)
                 : String(chunk.output ?? "").slice(0, 200)
-              controller.enqueue(evt({
-                type: "tool_result",
-                tool: chunk.toolName,
-                text: `${TOOL_LABELS[chunk.toolName] || chunk.toolName} complete`,
-                result: chunk.output,
-                resultPreview,
-                step: stepNum,
-              }))
+              controller.enqueue(evt({ type: "tool_result", tool: chunk.toolName, text: `${TOOL_LABELS[chunk.toolName] || chunk.toolName} complete`, result: chunk.output, resultPreview, step: stepNum }))
               controller.enqueue(evt({ type: "status", text: "Analysing results...", step: stepNum }))
             }
-
             if (chunk.type === "text-delta" && chunk.text) {
               controller.enqueue(evt({ type: "text", text: chunk.text }))
             }
-          } catch { /* ignore serialization errors on individual chunks */ }
+          } catch { /* ignore serialization errors */ }
         }
 
         controller.enqueue(evt({ type: "done" }))
@@ -321,7 +373,6 @@ export function runAgent(options: AgentOptions): ReadableStream<Uint8Array> {
 
 // ─── Workflow Trigger Helpers ─────────────────────────────────────────────────
 
-/** Run a specific workflow with pre-loaded context */
 export function runWorkflow(
   workflowType: "documentation_automation" | "roadmap_autopilot" | "experiment_planning" | "research_autopilot" | "dataset_intelligence" | "model_benchmark",
   payload: Record<string, unknown>,
@@ -330,14 +381,12 @@ export function runWorkflow(
   const workflowMessages: Record<string, string> = {
     documentation_automation: `Generate comprehensive documentation for the following: ${JSON.stringify(payload)}. Use create_document to save it.`,
     roadmap_autopilot: `Update the roadmap based on this completion event: ${JSON.stringify(payload)}. Mark completed, create next steps.`,
-    experiment_planning: `Plan and create experiments for this topic: ${JSON.stringify(payload)}. Use create_experiment for each planned experiment.`,
-    research_autopilot: `Start a full research autopilot workflow for: ${JSON.stringify(payload)}. Run run_research_autopilot first, then crawl web, create notes and documentation.`,
+    experiment_planning: `Plan and create experiments for this topic: ${JSON.stringify(payload)}. Use generate_plan first, then create_experiment after approval.`,
+    research_autopilot: `Start a full research autopilot workflow for: ${JSON.stringify(payload)}. Run research tool first, then generate_plan, create notes and documentation after approval.`,
     dataset_intelligence: `Perform full dataset intelligence analysis for dataset ID: ${JSON.stringify(payload)}. Use analyze_dataset, then create documentation and suggest experiments.`,
     model_benchmark: `Process benchmark results for model: ${JSON.stringify(payload)}. Use benchmark_model to record scores and generate report.`,
   }
-
   const message = workflowMessages[workflowType] || `Execute workflow: ${workflowType} with payload: ${JSON.stringify(payload)}`
   const systemContext = `ACTIVE WORKFLOW: ${workflowType}\nPayload: ${JSON.stringify(payload, null, 2)}`
-
   return runAgent({ ...options, message, systemContext })
 }
