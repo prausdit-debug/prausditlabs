@@ -14,7 +14,9 @@
 import { tool } from "ai"
 import { z } from "zod"
 import { prisma } from "./prisma"
-import type { Prisma } from "../generated/prisma/client"
+// Prisma JSON type alias (avoids static import from generated code which Turbopack can't resolve)
+// Prisma InputJsonValue excludes null (null JSON uses DbNull/JsonNull, not null literal)
+type InputJsonValue = string | number | boolean | { [key: string]: InputJsonValue } | InputJsonValue[]
 
 // ─── Helper: strip HTML for web content ─────────────────────────────────────
 
@@ -270,19 +272,20 @@ export const createDocument = tool({
     content: z.string().describe("Full documentation content in Markdown with headings, code blocks, tables, etc. Be comprehensive."),
     tags: z.array(z.string()).optional().describe("Relevant tags"),
     progress: z.enum(["NOT_STARTED", "IN_PROGRESS", "COMPLETED"]).optional().default("COMPLETED"),
+    projectId: z.string().optional().describe("Project ID to scope this document to"),
   }),
-  execute: async ({ title, slug, section, content, tags, progress }) => {
+  execute: async ({ title, slug, section, content, tags, progress, projectId }) => {
     try {
       const existing = await prisma.documentationPage.findUnique({ where: { slug } })
       if (existing) {
         const newSlug = `${slug}-${Date.now()}`
         const page = await prisma.documentationPage.create({
-          data: { title, slug: newSlug, section, content, tags: tags || [], order: 99, progress: progress ?? "COMPLETED" },
+          data: { title, slug: newSlug, section, content, tags: tags || [], order: 99, progress: progress ?? "COMPLETED", projectId: projectId ?? null },
         })
         return { success: true, id: page.id, slug: page.slug, note: "Slug was taken — used unique alternative" }
       }
       const page = await prisma.documentationPage.create({
-        data: { title, slug, section, content, tags: tags || [], order: 99, progress: progress ?? "COMPLETED" },
+        data: { title, slug, section, content, tags: tags || [], order: 99, progress: progress ?? "COMPLETED", projectId: projectId ?? null },
       })
       return { success: true, id: page.id, slug: page.slug, title: page.title }
     } catch (err) {
@@ -320,10 +323,11 @@ export const createNote = tool({
     content: z.string().describe("Note content in Markdown. Be detailed and include sources/references."),
     tags: z.array(z.string()).optional(),
     pinned: z.boolean().optional().default(false),
+    projectId: z.string().optional().describe("Project ID to scope this note to"),
   }),
-  execute: async ({ title, content, tags, pinned }) => {
+  execute: async ({ title, content, tags, pinned, projectId }) => {
     try {
-      const note = await prisma.note.create({ data: { title, content, tags: tags || [], pinned: pinned ?? false } })
+      const note = await prisma.note.create({ data: { title, content, tags: tags || [], pinned: pinned ?? false, projectId: projectId ?? null } })
       return { success: true, id: note.id, title: note.title }
     } catch (err) {
       return { success: false, error: String(err) }
@@ -362,8 +366,9 @@ export const createRoadmapStep = tool({
     milestone: z.string().optional().describe("Milestone name or goal"),
     tasks: z.array(z.string()).optional().describe("List of task titles for this step"),
     estimatedCompletion: z.string().optional().describe("ISO date string for estimated completion"),
+    projectId: z.string().optional().describe("Project ID to scope this roadmap step to"),
   }),
-  execute: async ({ title, phase, description, priority, milestone, tasks, estimatedCompletion }) => {
+  execute: async ({ title, phase, description, priority, milestone, tasks, estimatedCompletion, projectId }) => {
     try {
       const step = await prisma.roadmapStep.create({
         data: {
@@ -372,6 +377,7 @@ export const createRoadmapStep = tool({
           milestone, status: "PENDING", order: 99,
           estimatedCompletion: estimatedCompletion ? new Date(estimatedCompletion) : undefined,
           tasks: tasks ? { create: tasks.map((t) => ({ title: t, completed: false })) } : undefined,
+          projectId: projectId ?? null,
         },
         include: { tasks: true },
       })
@@ -434,11 +440,12 @@ export const createExperiment = tool({
     epochs: z.number().optional(),
     datasetId: z.string().optional().describe("ID of the dataset to use"),
     config: z.record(z.string(), z.unknown()).optional().describe("Additional config as JSON"),
+    projectId: z.string().optional().describe("Project ID to scope this experiment to"),
   }),
-  execute: async ({ name, baseModel, description, method, loraRank, loraAlpha, batchSize, learningRate, epochs, datasetId, config }) => {
+  execute: async ({ name, baseModel, description, method, loraRank, loraAlpha, batchSize, learningRate, epochs, datasetId, config, projectId }) => {
     try {
       const exp = await prisma.experiment.create({
-        data: { name, baseModel, description, method, status: "PENDING", loraRank, loraAlpha, batchSize, learningRate, epochs, datasetId, config: config as Prisma.InputJsonValue | undefined },
+        data: { name, baseModel, description, method, status: "PENDING", loraRank, loraAlpha, batchSize, learningRate, epochs, datasetId, config: config as InputJsonValue | undefined, projectId: projectId ?? null },
       })
       return { success: true, id: exp.id, name: exp.name }
     } catch (err) {
@@ -483,11 +490,12 @@ export const createDataset = tool({
     sourceUrl: z.string().optional(),
     tags: z.array(z.string()).optional(),
     license: z.string().optional().describe("e.g. 'Apache-2.0', 'MIT', 'CC-BY-4.0'"),
+    projectId: z.string().optional().describe("Project ID to scope this dataset to"),
   }),
-  execute: async ({ name, description, datasetType, numSamples, format, sourceUrl, tags, license }) => {
+  execute: async ({ name, description, datasetType, numSamples, format, sourceUrl, tags, license, projectId }) => {
     try {
       const ds = await prisma.dataset.create({
-        data: { name, description, datasetType, numSamples, format, sourceUrl, tags: tags || [], license, preprocessStatus: "RAW" },
+        data: { name, description, datasetType, numSamples, format, sourceUrl, tags: tags || [], license, preprocessStatus: "RAW", projectId: projectId ?? null },
       })
       return { success: true, id: ds.id, name: ds.name }
     } catch (err) {
