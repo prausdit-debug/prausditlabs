@@ -6,12 +6,15 @@
  *
  * Body: { id: string, isActive?: boolean }
  * If isActive is omitted, toggles the current state.
+ *
+ * No enum cast needed here — we never filter by `type` from a query param.
+ * The `file.type` value comes from Prisma directly and is already typed.
  */
 
-import { NextResponse } from "next/server"
+import { NextResponse }     from "next/server"
 import { requireWriteAuth } from "@/lib/api-auth"
-import { prisma } from "@/lib/prisma"
-import { toApiError } from "@/lib/errors"
+import { prisma }           from "@/lib/prisma"
+import { toApiError }       from "@/lib/errors"
 
 export async function POST(req: Request) {
   const authResult = await requireWriteAuth()
@@ -22,6 +25,7 @@ export async function POST(req: Request) {
     const { id, isActive } = body
 
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
+
     const file = await prisma.agentFile.findUnique({
       where:  { id },
       select: { id: true, name: true, type: true, isActive: true },
@@ -30,32 +34,39 @@ export async function POST(req: Request) {
 
     const newState = typeof isActive === "boolean" ? isActive : !file.isActive
 
-    // ── Safety: at least one system file must stay active ─────────────────────
+    // ── Safety: at least one system file must remain active ───────────────────
     if (file.type === "system" && !newState) {
       const activeCount = await prisma.agentFile.count({
         where: { type: "system", isActive: true, id: { not: id } },
       })
       if (activeCount === 0) {
-        return NextResponse.json({
-          error: "Cannot deactivate the last active system file. At least one system file must remain active.",
-          currentState: file.isActive,
-        }, { status: 400 })
+        return NextResponse.json(
+          {
+            error:        "Cannot deactivate the last active system file. At least one system file must remain active.",
+            currentState: file.isActive,
+          },
+          { status: 400 }
+        )
       }
     }
+
     const updated = await prisma.agentFile.update({
       where: { id },
       data:  { isActive: newState },
     })
 
     return NextResponse.json({
-      success:      true,
-      id:           updated.id,
-      name:         updated.name,
-      isActive:     updated.isActive,
+      success:       true,
+      id:            updated.id,
+      name:          updated.name,
+      isActive:      updated.isActive,
       previousState: file.isActive,
-      message:      `"${file.name}" ${newState ? "activated" : "deactivated"}.`,
+      message:       `"${file.name}" ${newState ? "activated" : "deactivated"}.`,
     })
   } catch (err) {
-    return NextResponse.json({ error: toApiError(err) }, { status: 500 })
+    return NextResponse.json(
+      { error: toApiError(err, "agent/files/toggle POST") },
+      { status: 500 }
+    )
   }
 }
