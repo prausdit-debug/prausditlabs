@@ -89,44 +89,6 @@ interface AgentEvent {
   projectName?: string
 }
 
-// ── Search Result Types (for rich source-card UI) ─────────────────────────────
-
-interface SearchResultItem {
-  title: string
-  url: string
-  snippet: string
-  content?: string
-  score?: number
-}
-
-interface ResearchToolResult {
-  query: string
-  provider: string
-  crawlProvider?: string
-  crawledCount: number
-  resultCount: number
-  summary: string
-  sources: string[]
-  results: SearchResultItem[]
-  error?: string
-}
-
-// Tools whose results get rich source-card UI
-const SEARCH_TOOLS = new Set(["research", "crawl_web", "run_research_autopilot"])
-
-function getHostname(url: string): string {
-  try { return new URL(url).hostname.replace("www.", "") }
-  catch { return url }
-}
-
-const PROVIDER_COLORS: Record<string, string> = {
-  tavily:      "text-blue-400 bg-blue-500/10 border-blue-500/20",
-  exa:         "text-violet-400 bg-violet-500/10 border-violet-500/20",
-  serpapi:     "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
-  firecrawl:   "text-orange-400 bg-orange-500/10 border-orange-500/20",
-  "crawl4ai":  "text-amber-400 bg-amber-500/10 border-amber-500/20",
-  "basic-fetch":"text-zinc-400 bg-zinc-500/10 border-zinc-500/20",
-}
 
 // ── Tool Icon Map ─────────────────────────────────────────────────────────────
 const TOOL_ICONS: Record<string, React.ElementType> = {
