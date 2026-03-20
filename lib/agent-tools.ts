@@ -1173,7 +1173,7 @@ export const researchTool = tool({
 })
 
 export const generatePlan = tool({
-  description: "Generate a structured execution plan for user approval BEFORE doing any work. ALWAYS use for complex multi-step tasks.",
+  description: "Generate a numbered execution plan for user approval BEFORE doing any work. ALWAYS use for complex multi-step tasks. Each section MUST have explicit numbered steps that will be executed one-by-one. The plan becomes the checklist the agent follows during execution — every step must map to exactly one tool call.",
   inputSchema: z.object({
     title: z.string(), overview: z.string(),
     sections: z.array(z.object({ heading: z.string(), subheading: z.string().optional(), description: z.string(), steps: z.array(z.string()), toolsRequired: z.array(z.string()).optional() })).min(2),
@@ -1221,7 +1221,7 @@ export const approvePlan = tool({
 })
 
 export const finalizeExecution = tool({
-  description: "Record completion of a plan execution. Uploads images to Cloudinary (keys from Settings DB) if configured.",
+  description: "Record completion of a plan execution. Call ONLY after ALL numbered steps in the approved plan have been executed. Never call this mid-execution. Include every created entity ID in createdEntities — this is the final record of everything the agent built. Uploads any imageUrls to Cloudinary.",
   inputSchema: z.object({
     planNoteId: z.string().optional(), executionTitle: z.string(), summary: z.string(),
     createdEntities: z.array(z.object({ type: z.enum(["document", "note", "experiment", "dataset", "roadmap_step", "model"]), id: z.string(), title: z.string() })).optional(),

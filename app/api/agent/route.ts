@@ -4,14 +4,24 @@
  * Agentic chat endpoint powered by the Vercel AI SDK.
  * Now accepts `currentProjectId` from the client and forwards it to
  * the agent engine for project-scoped tool injection.
+ *
  * Auth: Requires a Clerk session.
+ *
+ * Stream format (SSE):
+ *   data: { type: "status",        text: "Searching...",  step: N }
+ *   data: { type: "tool_call",     tool: "...", text: "...", args: {...}, step: N }
+ *   data: { type: "tool_result",   tool: "...", result: {...}, step: N }
+ *   data: { type: "text",          text: "..." }
+ *   data: { type: "project_switch", projectId: "...", projectName: "..." }
+ *   data: { type: "done" }
+ *   data: { type: "error",         text: "..." }
  */
 
 import { NextResponse } from "next/server"
 import { requireWriteAuth } from "@/lib/api-auth"
 import { runAgent } from "@/lib/agent-engine"
 
-export const maxDuration = 120
+export const maxDuration = 300  // 5 minutes — allows 10-15 step plans to complete
 
 export async function POST(req: Request) {
   const authResult = await requireWriteAuth()
