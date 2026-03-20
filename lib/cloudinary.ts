@@ -13,6 +13,7 @@
  */
 
 import { prisma } from "./prisma"
+import { decryptKey } from "./crypto"
 
 export interface CloudinaryUploadResult {
   url:      string    // secure HTTPS CDN URL
@@ -57,7 +58,7 @@ export async function getCloudinaryConfig(): Promise<CloudinaryConfig | null> {
   return {
     cloudName,
     uploadPreset: dbSettings?.cloudinaryUploadPreset || process.env.CLOUDINARY_UPLOAD_PRESET || null,
-    apiKey:       dbSettings?.cloudinaryApiKey       || process.env.CLOUDINARY_API_KEY       || null,
+    apiKey:       (dbSettings?.cloudinaryApiKey ? decryptKey(dbSettings.cloudinaryApiKey) : null) || process.env.CLOUDINARY_API_KEY || null,
     apiSecret:    process.env.CLOUDINARY_API_SECRET || null,  // never stored in DB
     folder:       process.env.CLOUDINARY_FOLDER || "prausdit-lab",
   }

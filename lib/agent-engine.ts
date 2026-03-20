@@ -49,13 +49,12 @@ interface AgentFileSection {
 async function loadActiveAgentFiles(): Promise<AgentFileSection> {
   const sections: AgentFileSection = { system: [], rules: [], tools: [] }
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const files = await (prisma as any).agentFile.findMany({
+    const files = await prisma.agentFile.findMany({
       where: { isActive: true },
       select: { name: true, type: true, content: true },
       orderBy: { createdAt: "asc" },
     })
-    for (const file of files as Array<{ name: string; type: string; content: string }>) {
+    for (const file of files) {
       const type = file.type as keyof AgentFileSection
       if (sections[type] !== undefined) {
         sections[type].push(`<!-- ${file.name} -->\n${file.content}`)

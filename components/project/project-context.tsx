@@ -87,9 +87,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setProjects(data)
       
       // Restore selected project from localStorage
-      const savedProjectId = typeof window !== "undefined" 
-        ? localStorage.getItem("selectedProjectId") 
-        : null
+      // Note: useCallback runs client-side only — no SSR guard needed
+      const savedProjectId = localStorage.getItem("selectedProjectId")
       if (savedProjectId) {
         const found = data.find((p: Project) => p.id === savedProjectId)
         if (found) setSelectedProject(found)

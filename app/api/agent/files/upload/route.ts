@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server"
 import { requireWriteAuth } from "@/lib/api-auth"
 import { prisma } from "@/lib/prisma"
+import { toApiError } from "@/lib/errors"
 
 const MAX_FILE_SIZE = 512 * 1024  // 512 KB
 const ALLOWED_TYPES = ["system", "rules", "tools"]
@@ -36,9 +37,7 @@ export async function POST(req: Request) {
       if (!content.trim()) return NextResponse.json({ error: "File is empty" }, { status: 400 })
 
       const fileName = name?.trim() || file.name.replace(".md", "").replace(/-/g, " ").replace(/_/g, " ")
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const created = await (prisma as any).agentFile.create({
+      const created = await prisma.agentFile.create({
         data: { name: fileName, type, content, isActive: true, order: 0 },
       })
 
@@ -59,9 +58,7 @@ export async function POST(req: Request) {
     if (!content?.trim()) return NextResponse.json({ error: "content is required" }, { status: 400 })
     if (!ALLOWED_TYPES.includes(type)) return NextResponse.json({ error: "type must be system | rules | tools" }, { status: 400 })
     if (content.length > MAX_FILE_SIZE) return NextResponse.json({ error: "Content too large" }, { status: 400 })
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const created = await (prisma as any).agentFile.create({
+    const created = await prisma.agentFile.create({
       data: { name, type, content, isActive: true, order: 0 },
     })
 
@@ -72,6 +69,6 @@ export async function POST(req: Request) {
     }, { status: 201 })
 
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    return NextResponse.json({ error: toApiError(err) }, { status: 500 })
   }
 }

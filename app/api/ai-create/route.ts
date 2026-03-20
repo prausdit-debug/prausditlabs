@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { GoogleGenAI } from "@google/genai"
 import { requireWriteAuth } from "@/lib/api-auth"
 import { prisma } from "@/lib/prisma"
+import { decryptKey } from "@/lib/crypto"
 
 const SCHEMAS: Record<string, string> = {
   document: JSON.stringify({
@@ -48,7 +49,8 @@ export async function POST(req: Request) {
     const { type, title, ...extra } = body
 
     const aiSettings = await prisma.aISettings.findFirst().catch(() => null)
-    const apiKey = aiSettings?.geminiApiKey || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GEMINI_API_KEY
+    const rawKey = aiSettings?.geminiApiKey
+    const apiKey = (rawKey ? decryptKey(rawKey) : null) || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GEMINI_API_KEY
     if (!apiKey) {
       return NextResponse.json({ error: "GOOGLE_API_KEY not configured" }, { status: 500 })
     }

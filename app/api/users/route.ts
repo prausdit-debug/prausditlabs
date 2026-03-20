@@ -1,20 +1,37 @@
 /**
- * GET  /api/users — list all users (admin/super_admin dashboard)
- * POST /api/users — upsert a user on first Clerk login
+ * GET  /api/users — list all users (admin/super_admin ONLY)
+ * POST /api/users — upsert current user on first Clerk login (session-derived identity)
+ *
+ * FIXES:
+ *  - GET was returning full PII roster to ANY authenticated user (any role).
+ *    Now requires admin or super_admin role.
+ *  - POST was unauthenticated and trusted client-supplied clerkId + email,
+ *    allowing DB poisoning via fake super-admin email injection.
+ *    Now derives all identity fields from the verified Clerk session.
  */
 
-import { NextResponse } from "next/server"
-import { auth }         from "@clerk/nextjs/server"
-import { prisma }       from "@/lib/prisma"
-import { getSuperAdminEmail } from "@/lib/api-auth"
+import { NextResponse }    from "next/server"
+import { auth, currentUser } from "@clerk/nextjs/server"
+import { prisma }          from "@/lib/prisma"
+import { getSuperAdminEmail, getEffectiveUser } from "@/lib/api-auth"
+import { toApiError }      from "@/lib/errors"
+
+// ─── GET /api/users ───────────────────────────────────────────────────────────
 
 export async function GET() {
   try {
-    // Require a Clerk session — any authenticated user can request this
-    // (role check happens in the UI; the API returns data needed for the page)
-    const { userId } = await auth()
-    if (!userId) {
+    // Step 1: verify session
+    const actor = await getEffectiveUser()
+    if (!actor) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Step 2: require admin-level role — regular users cannot enumerate all accounts
+    if (!["super_admin", "admin"].includes(actor.role)) {
+      return NextResponse.json(
+        { error: "Forbidden: only admins can view the user list" },
+        { status: 403 }
+      )
     }
 
     const users = await prisma.user.findMany({
@@ -34,38 +51,48 @@ export async function GET() {
   } catch (error) {
     console.error("[/api/users GET] Database error:", {
       message: error instanceof Error ? error.message : String(error),
-      stack:   error instanceof Error ? error.stack   : undefined,
     })
-    // Return empty array — dashboard shows empty state instead of crashing
     return NextResponse.json([], { status: 200 })
   }
 }
 
-export async function POST(req: Request) {
-  try {
-    const body = await req.json()
-    const { clerkId, email, name, imageUrl } = body
+// ─── POST /api/users ──────────────────────────────────────────────────────────
 
-    if (!clerkId || !email) {
-      return NextResponse.json({ error: "clerkId and email are required" }, { status: 400 })
+export async function POST() {
+  try {
+    // Step 1: require a valid Clerk session — NEVER trust client-supplied identity
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    // Step 2: derive ALL identity fields server-side from Clerk
+    const clerkUser = await currentUser()
+    if (!clerkUser) {
+      return NextResponse.json({ error: "Clerk user not found" }, { status: 404 })
+    }
+
+    // These values come from the verified Clerk session — never from the request body
+    const email    = clerkUser.emailAddresses[0]?.emailAddress ?? ""
+    const name     = clerkUser.fullName ?? clerkUser.firstName ?? undefined
+    const imageUrl = clerkUser.imageUrl ?? undefined
 
     const superAdminEmail = getSuperAdminEmail()
     const isSuperAdmin    =
       !!superAdminEmail &&
+      !!email &&
       email.toLowerCase() === superAdminEmail.toLowerCase()
 
     const user = await prisma.user.upsert({
-      where:  { clerkId },
+      where:  { clerkId: userId },
       update: {
         email,
         name:     name     ?? undefined,
         imageUrl: imageUrl ?? undefined,
-        // Promote to super_admin if email matches — never downgrade
         ...(isSuperAdmin ? { role: "super_admin" } : {}),
       },
       create: {
-        clerkId,
+        clerkId:  userId,
         email,
         name:     name     ?? undefined,
         imageUrl: imageUrl ?? undefined,
@@ -77,8 +104,10 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("[/api/users POST] Error:", {
       message: error instanceof Error ? error.message : String(error),
-      stack:   error instanceof Error ? error.stack   : undefined,
     })
-    return NextResponse.json({ error: "Failed to create/update user" }, { status: 500 })
+    return NextResponse.json(
+      { error: toApiError(error, "api/users POST") },
+      { status: 500 }
+    )
   }
 }

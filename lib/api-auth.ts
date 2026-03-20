@@ -1,6 +1,11 @@
 /**
- * lib/api-auth.ts — shared write-auth helper for all API routes
+ * lib/api-auth.ts — Shared write-auth helper for all API routes.
  * ──────────────────────────────────────────────────────────────
+ * THIS IS THE SINGLE SOURCE for:
+ *   - getSuperAdminEmail()   (do NOT duplicate in other files)
+ *   - requireWriteAuth()
+ *   - getEffectiveUser()
+ *
  * ACCESS RULES (evaluated in order, DB only touched if needed):
  *
  *  1. No Clerk session          → 401
@@ -22,6 +27,9 @@ import { NextResponse }      from "next/server"
 
 export const WRITER_ROLES = new Set(["super_admin", "admin", "developer"])
 
+// ─── Single source for super-admin email ─────────────────────────────────────
+// Import THIS function everywhere — do NOT copy-paste it into other files.
+
 export function getSuperAdminEmail(): string | null {
   return (
     process.env.SUPER_ADMIN_EMAIL?.trim()  ||
@@ -30,19 +38,27 @@ export function getSuperAdminEmail(): string | null {
   )
 }
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 export type AuthResult =
   | { ok: true;  userId: string; role: string; email: string }
   | { ok: false; response: NextResponse }
 
-/**
- * promoteSuperAdminInDb — fire-and-forget background upsert.
- * Ensures every API that does a DB role lookup will see "super_admin"
- * instead of "user" after the first login.
- */
+export interface EffectiveUser {
+  userId:  string
+  email:   string
+  role:    string
+  dbId:    string | null   // null when DB is unavailable for super_admin fallback
+}
+
+// ─── promoteSuperAdminInDb ────────────────────────────────────────────────────
+// Fire-and-forget. Ensures every API that does a DB role lookup will see
+// "super_admin" instead of "user" after the first login.
+
 async function promoteSuperAdminInDb(
-  userId: string,
-  email:  string,
-  name?:  string | null,
+  userId:   string,
+  email:    string,
+  name?:    string | null,
   imageUrl?: string | null
 ): Promise<void> {
   try {
@@ -52,10 +68,11 @@ async function promoteSuperAdminInDb(
       create: { clerkId: userId, email, name: name ?? undefined, imageUrl: imageUrl ?? undefined, role: "super_admin" },
     })
   } catch (err) {
-    // Non-fatal — super_admin still works without DB record
     console.warn("[api-auth] super_admin DB promote failed (non-fatal):", err)
   }
 }
+
+// ─── requireWriteAuth ─────────────────────────────────────────────────────────
 
 export async function requireWriteAuth(): Promise<AuthResult> {
   try {
@@ -70,7 +87,6 @@ export async function requireWriteAuth(): Promise<AuthResult> {
       }
     }
 
-    // ── Step 1: Identify user via Clerk (no DB) ───────────────────────────
     const clerkUser        = await currentUser()
     const email            = clerkUser?.emailAddresses[0]?.emailAddress ?? ""
     const name             = clerkUser?.fullName ?? clerkUser?.firstName ?? null
@@ -80,14 +96,13 @@ export async function requireWriteAuth(): Promise<AuthResult> {
       !!superAdminEmail && !!email &&
       email.toLowerCase() === superAdminEmail.toLowerCase()
 
-    // ── Step 2: Super-admin — allow immediately, sync DB in background ────
+    // Super-admin — allow immediately, sync DB in background
     if (isSuperAdmin) {
-      promoteSuperAdminInDb(userId, email, name, imageUrl)   // fire-and-forget
+      promoteSuperAdminInDb(userId, email, name, imageUrl) // fire-and-forget
       return { ok: true, userId, role: "super_admin", email }
     }
 
-    // ── Step 3: DB role lookup for everyone else ──────────────────────────
-    // Check if database is configured first
+    // DB role lookup for everyone else
     if (!isDatabaseConfigured()) {
       console.warn("[api-auth] Database not configured - cannot verify role for non-super-admin")
       return {
@@ -116,7 +131,6 @@ export async function requireWriteAuth(): Promise<AuthResult> {
     }
 
     if (!dbUser) {
-      // First time here — create record, deny write access until promoted
       try {
         await prisma.user.create({
           data: { clerkId: userId, email, name: name ?? undefined, imageUrl: imageUrl ?? undefined, role: "user" },
@@ -152,5 +166,33 @@ export async function requireWriteAuth(): Promise<AuthResult> {
         { status: 500 }
       ),
     }
+  }
+}
+
+// ─── getEffectiveUser ─────────────────────────────────────────────────────────
+// Replaces the copy-pasted super-admin check in chat-sessions, workflow, etc.
+// Returns null if the user is not authenticated.
+
+export async function getEffectiveUser(): Promise<EffectiveUser | null> {
+  try {
+    const { userId } = await auth()
+    if (!userId) return null
+
+    const clerkUser       = await currentUser()
+    const email           = clerkUser?.emailAddresses[0]?.emailAddress ?? ""
+    const superAdminEmail = getSuperAdminEmail()
+
+    if (superAdminEmail && email.toLowerCase() === superAdminEmail.toLowerCase()) {
+      return { userId, email, role: "super_admin", dbId: null }
+    }
+
+    if (!isDatabaseConfigured()) return null
+
+    const dbUser = await prisma.user.findUnique({ where: { clerkId: userId } })
+    if (!dbUser) return null
+
+    return { userId, email, role: dbUser.role, dbId: dbUser.id }
+  } catch {
+    return null
   }
 }

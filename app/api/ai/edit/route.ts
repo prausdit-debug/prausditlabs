@@ -2,8 +2,15 @@ import { NextResponse } from "next/server"
 import { generateText } from "ai"
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { prisma, isDatabaseConfigured } from "@/lib/prisma"
+import { requireWriteAuth } from "@/lib/api-auth"
+import { toApiError } from "@/lib/errors"
 
 export async function POST(req: Request) {
+  // FIX CRITICAL-01: This route was completely unauthenticated.
+  // Any unauthenticated client could call it and burn your Gemini API quota.
+  const authResult = await requireWriteAuth()
+  if (!authResult.ok) return authResult.response
+
   try {
     const { text, instruction } = await req.json()
 

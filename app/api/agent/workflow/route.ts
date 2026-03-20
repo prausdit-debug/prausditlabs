@@ -10,16 +10,16 @@
  *
  * Body:
  *   { workflow: WorkflowType, payload: Record<string, unknown>, provider?: string, model?: string }
+ *
+ * FIXES:
+ *  - Removed duplicated getSuperAdminEmail() and inline role check.
+ *    Now uses requireWriteAuth() from lib/api-auth (single source of truth).
+ *    requireWriteAuth() already handles super_admin email bypass + DB role lookup.
  */
 
-import { NextResponse } from "next/server"
-import { auth, currentUser } from "@clerk/nextjs/server"
-import { runWorkflow } from "@/lib/agent-engine"
-import { prisma } from "@/lib/prisma"
-
-function getSuperAdminEmail(): string | null {
-  return process.env.SUPER_ADMIN_EMAIL?.trim() || process.env.SUPPER_ADMIN_EMAIL?.trim() || null
-}
+import { NextResponse }    from "next/server"
+import { runWorkflow }     from "@/lib/agent-engine"
+import { requireWriteAuth } from "@/lib/api-auth"
 
 export const maxDuration = 120
 
@@ -36,30 +36,19 @@ type WorkflowType = typeof ALLOWED_WORKFLOWS[number]
 
 export async function POST(req: Request) {
   try {
-    const { userId } = await auth()
-    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-    // Super admin check FIRST (no DB needed)
-    const clerkUser = await currentUser()
-    const email = clerkUser?.emailAddresses[0]?.emailAddress ?? ""
-    const superAdminEmail = getSuperAdminEmail()
-    const isSuperAdmin = !!superAdminEmail && !!email && email.toLowerCase() === superAdminEmail.toLowerCase()
-
-    if (!isSuperAdmin) {
-      // DB role lookup for non-super-admins
-      const user = await prisma.user.findUnique({ where: { clerkId: userId } })
-      if (!user || !["super_admin", "admin", "developer"].includes(user.role)) {
-        return NextResponse.json({ error: "Forbidden: workflow triggers require developer role or higher" }, { status: 403 })
-      }
-    }
+    // requireWriteAuth() handles: session check, super_admin email bypass,
+    // DB role lookup, and 401/403/503 responses — no duplication needed here.
+    const authResult = await requireWriteAuth()
+    if (!authResult.ok) return authResult.response
 
     const body = await req.json()
     const { workflow, payload = {}, provider = "gemini", model = "gemini-2.5-flash" } = body
 
     if (!workflow || !ALLOWED_WORKFLOWS.includes(workflow as WorkflowType)) {
-      return NextResponse.json({
-        error: `Invalid workflow. Must be one of: ${ALLOWED_WORKFLOWS.join(", ")}`,
-      }, { status: 400 })
+      return NextResponse.json(
+        { error: `Invalid workflow. Must be one of: ${ALLOWED_WORKFLOWS.join(", ")}` },
+        { status: 400 }
+      )
     }
 
     const stream = runWorkflow(
@@ -70,23 +59,23 @@ export async function POST(req: Request) {
 
     return new Response(stream, {
       headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
+        "Content-Type":    "text/event-stream",
+        "Cache-Control":   "no-cache",
+        "Connection":      "keep-alive",
         "X-Accel-Buffering": "no",
         "X-Workflow-Type": workflow,
       },
     })
   } catch (err) {
-    console.error("Workflow route error:", err)
-    const msg = err instanceof Error ? err.message : "Internal server error"
-    return NextResponse.json({ error: msg }, { status: 500 })
+    console.error("[/api/agent/workflow] Error:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
 export async function GET() {
   return NextResponse.json({
     availableWorkflows: ALLOWED_WORKFLOWS,
-    description: "POST with { workflow, payload, provider?, model? } to trigger an autonomous agent workflow",
+    description:
+      "POST with { workflow, payload, provider?, model? } to trigger an autonomous agent workflow",
   })
 }

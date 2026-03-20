@@ -39,16 +39,34 @@ function truncate(text: string, maxLen = 4000): string {
   return text.length > maxLen ? text.slice(0, maxLen) + "..." : text
 }
 
-const BLOCKED_HOSTS = [
-  "localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254",
-  "metadata.google", "instance-data", "192.168.", "10.",
-  "172.16.", "172.17.", "172.18.", "172.19.", "172.20.", "172.21.",
-  "172.22.", "172.23.", "172.24.", "172.25.", "172.26.", "172.27.",
-  "172.28.", "172.29.", "172.30.", "172.31.", "::1",
+// FIX: Use URL parsing to isolate the actual hostname rather than string.includes().
+// String includes is bypassable: "https://169.254.169.254.attacker.com" would pass
+// because the blocked string appears as a substring in the full URL.
+const BLOCKED_HOST_PATTERNS: RegExp[] = [
+  /^localhost$/i,
+  /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  /^0\.0\.0\.0$/,
+  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  /^192\.168\.\d{1,3}\.\d{1,3}$/,
+  /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
+  /^169\.254\.\d{1,3}\.\d{1,3}$/,
+  /^::1$/,
+  /^fc[0-9a-f]{2}:/i,
+  /^fe80:/i,
+  /metadata\.google\.internal$/i,
+  /instance-data/i,
 ]
-function isSafeUrl(url: string): boolean {
-  if (!url.startsWith("https://")) return false
-  return !BLOCKED_HOSTS.some((b) => url.includes(b))
+
+function isSafeUrl(rawUrl: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== "https:") return false
+  const hostname = parsed.hostname.toLowerCase()
+  return !BLOCKED_HOST_PATTERNS.some((pattern) => pattern.test(hostname))
 }
 
 // ── Research Config — DB-first, env fallback ──────────────────────────────────
@@ -65,15 +83,11 @@ interface ResearchConfig {
   crawl4ai:  string | null
 }
 
-let _cachedResearchConfig: ResearchConfig | null = null
-let _cacheExpiry = 0
-
+// FIX: Removed module-level cache. In Vercel serverless, cold starts always
+// create a fresh module scope so the cache missed on every cold call anyway.
+// On warm instances it served stale keys for 60s after a Settings update.
+// prisma.aISettings.findFirst() is a sub-ms indexed lookup — no cache needed.
 async function getResearchConfig(): Promise<ResearchConfig> {
-  // Cache for 60 seconds to avoid a DB hit on every tool call
-  if (_cachedResearchConfig && Date.now() < _cacheExpiry) {
-    return _cachedResearchConfig
-  }
-
   let dbSettings: {
     tavilyApiKey?: string | null
     exaApiKey?: string | null
@@ -85,35 +99,28 @@ async function getResearchConfig(): Promise<ResearchConfig> {
   try {
     dbSettings = await prisma.aISettings.findFirst({
       select: {
-        tavilyApiKey: true,
-        exaApiKey: true,
-        serpApiKey: true,
+        tavilyApiKey:    true,
+        exaApiKey:       true,
+        serpApiKey:      true,
         firecrawlApiKey: true,
-        crawl4aiUrl: true,
+        crawl4aiUrl:     true,
       },
     })
   } catch {
     // DB unavailable — fall through to env vars
   }
 
-  const cfg: ResearchConfig = {
+  return {
     tavily:    dbSettings?.tavilyApiKey    || process.env.TAVILY_API_KEY    || null,
     exa:       dbSettings?.exaApiKey       || process.env.EXA_API_KEY       || null,
     serpapi:   dbSettings?.serpApiKey      || process.env.SERPAPI_KEY       || null,
     firecrawl: dbSettings?.firecrawlApiKey || process.env.FIRECRAWL_API_KEY || null,
     crawl4ai:  dbSettings?.crawl4aiUrl     || process.env.CRAWL4AI_API_URL  || null,
   }
-
-  _cachedResearchConfig = cfg
-  _cacheExpiry = Date.now() + 60_000
-  return cfg
 }
 
-// Exported so the settings route can bust the cache when keys are updated
-export function bustResearchConfigCache() {
-  _cachedResearchConfig = null
-  _cacheExpiry = 0
-}
+// Kept for API compatibility — cache removed so this is a no-op now.
+export function bustResearchConfigCache() { /* no-op */ }
 
 // ── Research interfaces ───────────────────────────────────────────────────────
 

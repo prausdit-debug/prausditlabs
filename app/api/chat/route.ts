@@ -4,6 +4,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { createOpenAI } from "@ai-sdk/openai"
 import { prisma } from "@/lib/prisma"
 import { requireWriteAuth } from "@/lib/api-auth"
+import { decryptKey } from "@/lib/crypto"
 
 export const maxDuration = 60
 
@@ -77,7 +78,7 @@ export async function POST(req: Request) {
     // Get the AI model
     let model
     if (provider === "openrouter") {
-      const apiKey = settings?.openrouterApiKey || process.env.OPENROUTER_API_KEY
+      const apiKey = (settings?.openrouterApiKey ? decryptKey(settings.openrouterApiKey) : null) || process.env.OPENROUTER_API_KEY
       if (!apiKey) {
         return NextResponse.json({ 
           error: "OpenRouter API key not configured. Add OPENROUTER_API_KEY to environment variables or configure in Settings." 
@@ -94,7 +95,7 @@ export async function POST(req: Request) {
       })
       model = openai(modelId)
     } else {
-      const apiKey = settings?.geminiApiKey || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GEMINI_API_KEY
+      const apiKey = (settings?.geminiApiKey ? decryptKey(settings.geminiApiKey) : null) || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GEMINI_API_KEY
       if (!apiKey) {
         return NextResponse.json({ 
           error: "Gemini API key not configured. Set GOOGLE_API_KEY environment variable (get one at https://aistudio.google.com/app/apikey) or configure in Settings." 

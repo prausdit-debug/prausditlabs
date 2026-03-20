@@ -7,6 +7,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { requireWriteAuth } from "@/lib/api-auth"
 import { prisma } from "@/lib/prisma"
+import { toApiError } from "@/lib/errors"
 
 // GET: List all agent files 
 
@@ -18,9 +19,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url)
     const type     = searchParams.get("type")     // optional filter: system | rules | tools
     const activeOnly = searchParams.get("active") === "true"
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const files = await (prisma as any).agentFile.findMany({
+    const files = await prisma.agentFile.findMany({
       where: {
         ...(type ? { type } : {}),
         ...(activeOnly ? { isActive: true } : {}),
@@ -50,7 +49,7 @@ export async function GET(req: Request) {
       },
     })
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    return NextResponse.json({ error: toApiError(err) }, { status: 500 })
   }
 }
 
@@ -72,8 +71,7 @@ export async function POST(req: Request) {
 
     // ── Safety: prevent deleting the last active system file ─────────────────
     if (type === "system" && isActive === false && id) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const activeSystemCount = await (prisma as any).agentFile.count({ where: { type: "system", isActive: true, id: { not: id } } })
+      const activeSystemCount = await prisma.agentFile.count({ where: { type: "system", isActive: true, id: { not: id } } })
       if (activeSystemCount === 0) {
         return NextResponse.json({ error: "Cannot deactivate the last active system file. At least one must remain active." }, { status: 400 })
       }
@@ -81,20 +79,15 @@ export async function POST(req: Request) {
 
     if (id) {
       // ── UPDATE existing file with versioning ──────────────────────────────
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const existing = await (prisma as any).agentFile.findUnique({ where: { id }, select: { id: true, content: true, history: { select: { version: true }, orderBy: { version: "desc" }, take: 1 } } })
+      const existing = await prisma.agentFile.findUnique({ where: { id }, select: { id: true, content: true, history: { select: { version: true }, orderBy: { version: "desc" }, take: 1 } } })
       if (!existing) return NextResponse.json({ error: `File ${id} not found` }, { status: 404 })
 
       // Save version snapshot before update
       const latestVersion = (existing.history[0]?.version ?? 0)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (prisma as any).agentFileHistory.create({
+      await prisma.agentFileHistory.create({
         data: { fileId: id, content: existing.content, version: latestVersion + 1, savedBy: authResult.email },
       })
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const updated = await (prisma as any).agentFile.update({
+      const updated = await prisma.agentFile.update({
         where: { id },
         data: { name, type, content, isActive: isActive ?? true, order: order ?? 0 },
       })
@@ -102,14 +95,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, file: updated, versionSaved: latestVersion + 1, message: `File updated. Previous version saved as v${latestVersion + 1}.` })
     } else {
       // ── CREATE new file ───────────────────────────────────────────────────
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const created = await (prisma as any).agentFile.create({
+      const created = await prisma.agentFile.create({
         data: { name, type, content, isActive: isActive ?? true, order: order ?? 0 },
       })
       return NextResponse.json({ success: true, file: created, message: `File "${name}" created.` }, { status: 201 })
     }
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    return NextResponse.json({ error: toApiError(err) }, { status: 500 })
   }
 }
 
@@ -123,22 +115,17 @@ export async function DELETE(req: Request) {
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const file = await (prisma as any).agentFile.findUnique({ where: { id }, select: { type: true, isActive: true } })
+    const file = await prisma.agentFile.findUnique({ where: { id }, select: { type: true, isActive: true } })
     if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 })
 
     // Prevent deleting last active system file
     if (file.type === "system" && file.isActive) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const count = await (prisma as any).agentFile.count({ where: { type: "system", isActive: true } })
+      const count = await prisma.agentFile.count({ where: { type: "system", isActive: true } })
       if (count <= 1) return NextResponse.json({ error: "Cannot delete the last active system file." }, { status: 400 })
     }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (prisma as any).agentFile.delete({ where: { id } })
+    await prisma.agentFile.delete({ where: { id } })
     return NextResponse.json({ success: true, message: "File deleted." })
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    return NextResponse.json({ error: toApiError(err) }, { status: 500 })
   }
 }

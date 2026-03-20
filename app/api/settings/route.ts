@@ -2,64 +2,41 @@
  * GET  /api/settings  — return current AI + tool settings (any authenticated user)
  * POST /api/settings  — update settings (admin / super_admin only)
  *
- * UPGRADED: now handles research, crawl, and Cloudinary API keys
- * in addition to existing Gemini / OpenRouter keys.
+ * FIXES:
+ *  - API keys are now encrypted (AES-256-GCM) before being stored in the DB.
+ *    Reads use the safe response builder which never returns raw key values.
+ *  - getSuperAdminEmail() is now imported from lib/api-auth (single source).
+ *  - getEffectiveRole() is replaced by getEffectiveUser() from lib/api-auth.
  */
 
-import { NextResponse } from "next/server"
-import { auth, currentUser } from "@clerk/nextjs/server"
-import { prisma } from "@/lib/prisma"
+import { NextResponse }  from "next/server"
+import { auth }          from "@clerk/nextjs/server"
+import { prisma }        from "@/lib/prisma"
+import { getEffectiveUser } from "@/lib/api-auth"
+import { encryptKey }    from "@/lib/crypto"
+import { toApiError }    from "@/lib/errors"
 
 const ADMIN_ROLES = new Set(["super_admin", "admin"])
 
-function getSuperAdminEmail(): string | null {
-  return (
-    process.env.SUPER_ADMIN_EMAIL?.trim()  ||
-    process.env.SUPPER_ADMIN_EMAIL?.trim() ||
-    null
-  )
-}
-
-async function getEffectiveRole(): Promise<string | null> {
-  try {
-    const { userId } = await auth()
-    if (!userId) return null
-    const clerkUser = await currentUser()
-    const email = clerkUser?.emailAddresses[0]?.emailAddress ?? ""
-    const superAdminEmail = getSuperAdminEmail()
-    if (superAdminEmail && email.toLowerCase() === superAdminEmail.toLowerCase()) {
-      return "super_admin"
-    }
-    const user = await prisma.user.findUnique({ where: { clerkId: userId } })
-    return user?.role ?? null
-  } catch {
-    return null
-  }
-}
-
-// ─── Helper: safe settings response (never leak raw keys) ────────────────────
+// ─── Helper: safe settings response (NEVER leak raw keys) ────────────────────
 
 function buildSettingsResponse(settings: Record<string, unknown> | null) {
   if (!settings) {
     return {
-      defaultProvider:          "gemini",
-      geminiDefaultModel:       "gemini-2.5-flash",
-      selectedOpenRouterModels: [],
-      // AI provider flags
-      hasGeminiKey:             false,
-      hasOpenRouterKey:         false,
-      // Research search provider flags
-      hasTavilyKey:             false,
-      hasExaKey:                false,
-      hasSerpApiKey:            false,
-      // Crawl provider flags
-      hasFirecrawlKey:          false,
-      hasCrawl4aiUrl:           false,
-      // Cloudinary flags
+      defaultProvider:           "gemini",
+      geminiDefaultModel:        "gemini-2.5-flash",
+      selectedOpenRouterModels:  [],
+      hasGeminiKey:              false,
+      hasOpenRouterKey:          false,
+      hasTavilyKey:              false,
+      hasExaKey:                 false,
+      hasSerpApiKey:             false,
+      hasFirecrawlKey:           false,
+      hasCrawl4aiUrl:            false,
       imageGenerationModel:      "auto",
-      hasCloudinaryCloudName:   false,
-      hasCloudinaryUploadPreset:false,
-      hasCloudinaryApiKey:      false,
+      hasCloudinaryCloudName:    false,
+      hasCloudinaryUploadPreset: false,
+      hasCloudinaryApiKey:       false,
     }
   }
 
@@ -68,23 +45,20 @@ function buildSettingsResponse(settings: Record<string, unknown> | null) {
     defaultProvider:           settings.defaultProvider,
     geminiDefaultModel:        settings.geminiDefaultModel,
     selectedOpenRouterModels:  settings.selectedOpenRouterModels,
-    // AI provider flags
+    // Boolean flags only — raw key values are NEVER returned to the client
     hasGeminiKey:              !!settings.geminiApiKey,
     hasOpenRouterKey:          !!settings.openrouterApiKey,
-    // Research search provider flags
     hasTavilyKey:              !!settings.tavilyApiKey,
     hasExaKey:                 !!settings.exaApiKey,
     hasSerpApiKey:             !!settings.serpApiKey,
-    // Crawl provider flags
     hasFirecrawlKey:           !!settings.firecrawlApiKey,
     hasCrawl4aiUrl:            !!settings.crawl4aiUrl,
-    crawl4aiUrl:               settings.crawl4aiUrl || null,  // URL is safe to expose
-    // Cloudinary flags
+    crawl4aiUrl:               settings.crawl4aiUrl || null,      // URL is not a secret
     imageGenerationModel:      (settings.imageGenerationModel as string) || "auto",
     hasCloudinaryCloudName:    !!settings.cloudinaryCloudName,
     hasCloudinaryUploadPreset: !!settings.cloudinaryUploadPreset,
     hasCloudinaryApiKey:       !!settings.cloudinaryApiKey,
-    cloudinaryCloudName:       settings.cloudinaryCloudName || null, // cloud name is safe to expose
+    cloudinaryCloudName:       settings.cloudinaryCloudName || null, // cloud name is safe
   }
 }
 
@@ -114,8 +88,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const role = await getEffectiveRole()
-    if (!role || !ADMIN_ROLES.has(role)) {
+    // Use getEffectiveUser from lib/api-auth — no local duplicate
+    const actor = await getEffectiveUser()
+    if (!actor || !ADMIN_ROLES.has(actor.role)) {
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })
     }
 
@@ -123,21 +98,17 @@ export async function POST(req: Request) {
     const body = await req.json()
 
     const {
-      // Existing AI provider keys
       defaultProvider,
       geminiApiKey,
       geminiDefaultModel,
       openrouterApiKey,
       selectedOpenRouterModels,
-      // Research search provider keys (new)
       tavilyApiKey,
       exaApiKey,
       serpApiKey,
-      // Crawl provider keys (new)
       firecrawlApiKey,
       crawl4aiUrl,
       imageGenerationModel,
-      // Cloudinary keys (new)
       cloudinaryCloudName,
       cloudinaryUploadPreset,
       cloudinaryApiKey,
@@ -145,33 +116,32 @@ export async function POST(req: Request) {
 
     const data: Record<string, unknown> = { updatedBy: userId }
 
-    // ── Existing fields ───────────────────────────────────────────────────────
-    if (defaultProvider         !== undefined) data.defaultProvider         = defaultProvider
-    if (geminiDefaultModel      !== undefined) data.geminiDefaultModel      = geminiDefaultModel
-    if (selectedOpenRouterModels!== undefined) data.selectedOpenRouterModels= selectedOpenRouterModels
-    if (geminiApiKey      && geminiApiKey      !== "") data.geminiApiKey      = geminiApiKey
-    if (openrouterApiKey  && openrouterApiKey  !== "") data.openrouterApiKey  = openrouterApiKey
+    // ── Non-secret fields ─────────────────────────────────────────────────────
+    if (defaultProvider          !== undefined) data.defaultProvider          = defaultProvider
+    if (geminiDefaultModel       !== undefined) data.geminiDefaultModel       = geminiDefaultModel
+    if (selectedOpenRouterModels !== undefined) data.selectedOpenRouterModels = selectedOpenRouterModels
+    if (imageGenerationModel     !== undefined) data.imageGenerationModel     = imageGenerationModel || "auto"
+    if (crawl4aiUrl              !== undefined) data.crawl4aiUrl              = crawl4aiUrl === "" ? null : crawl4aiUrl
+    if (cloudinaryCloudName      !== undefined) data.cloudinaryCloudName      = cloudinaryCloudName  === "" ? null : cloudinaryCloudName
 
-    // ── Research search providers (Tavily primary, Exa secondary, SerpAPI fallback) ──────
-    if (tavilyApiKey  !== undefined) data.tavilyApiKey  = tavilyApiKey  === "" ? null : tavilyApiKey
-    if (exaApiKey     !== undefined) data.exaApiKey     = exaApiKey     === "" ? null : exaApiKey
-    if (serpApiKey    !== undefined) data.serpApiKey    = serpApiKey    === "" ? null : serpApiKey
-
-    // ── Crawl providers ───────────────────────────────────────────────────────
-    if (firecrawlApiKey !== undefined) data.firecrawlApiKey = firecrawlApiKey === "" ? null : firecrawlApiKey
-    if (crawl4aiUrl     !== undefined) data.crawl4aiUrl     = crawl4aiUrl     === "" ? null : crawl4aiUrl
-
-    // ── Cloudinary ────────────────────────────────────────────────────────────
-    if (imageGenerationModel   !== undefined) data.imageGenerationModel   = imageGenerationModel   || "auto"
-    if (cloudinaryCloudName    !== undefined) data.cloudinaryCloudName    = cloudinaryCloudName    === "" ? null : cloudinaryCloudName
+    // ── Secret fields: encrypt before storing ─────────────────────────────────
+    if (geminiApiKey      && geminiApiKey      !== "") data.geminiApiKey      = encryptKey(geminiApiKey)
+    if (openrouterApiKey  && openrouterApiKey  !== "") data.openrouterApiKey  = encryptKey(openrouterApiKey)
+    if (tavilyApiKey      !== undefined) data.tavilyApiKey      = tavilyApiKey      === "" ? null : encryptKey(tavilyApiKey)
+    if (exaApiKey         !== undefined) data.exaApiKey         = exaApiKey         === "" ? null : encryptKey(exaApiKey)
+    if (serpApiKey        !== undefined) data.serpApiKey        = serpApiKey        === "" ? null : encryptKey(serpApiKey)
+    if (firecrawlApiKey   !== undefined) data.firecrawlApiKey   = firecrawlApiKey   === "" ? null : encryptKey(firecrawlApiKey)
     if (cloudinaryUploadPreset !== undefined) data.cloudinaryUploadPreset = cloudinaryUploadPreset === "" ? null : cloudinaryUploadPreset
-    if (cloudinaryApiKey       !== undefined) data.cloudinaryApiKey       = cloudinaryApiKey       === "" ? null : cloudinaryApiKey
+    if (cloudinaryApiKey  !== undefined) data.cloudinaryApiKey  = cloudinaryApiKey  === "" ? null : encryptKey(cloudinaryApiKey)
 
     const existing = await prisma.aISettings.findFirst()
     let settings
 
     if (existing) {
-      settings = await prisma.aISettings.update({ where: { id: existing.id }, data })
+      settings = await prisma.aISettings.update({
+        where: { id: existing.id },
+        data,
+      })
     } else {
       settings = await prisma.aISettings.create({
         data: data as Parameters<typeof prisma.aISettings.create>[0]["data"],
@@ -186,6 +156,9 @@ export async function POST(req: Request) {
     console.error("[/api/settings POST] Error:", {
       message: err instanceof Error ? err.message : String(err),
     })
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return NextResponse.json(
+      { error: toApiError(err, "api/settings POST") },
+      { status: 500 }
+    )
   }
 }

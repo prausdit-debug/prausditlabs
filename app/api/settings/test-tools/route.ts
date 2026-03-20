@@ -13,11 +13,16 @@
  *   "firecrawl" - crawl
  *   "crawl4ai"  - crawl
  *   "cloudinary"- image CDN
+ *
+ * FIXES:
+ *  - All stored DB keys are now decrypted via decryptKey() before use.
+ *  - String(e) in catch blocks replaced with safe generic messages.
  */
 
-import { NextResponse } from "next/server"
+import { NextResponse }     from "next/server"
 import { requireWriteAuth } from "@/lib/api-auth"
-import { prisma } from "@/lib/prisma"
+import { prisma }           from "@/lib/prisma"
+import { decryptKey }       from "@/lib/crypto"
 
 export async function POST(req: Request) {
   const auth = await requireWriteAuth()
@@ -31,15 +36,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "provider is required" }, { status: 400 })
     }
 
-    // Fallback: load stored key from DB if none provided
+    // Load stored settings once, decrypt all relevant keys up front
     const settings = await prisma.aISettings.findFirst().catch(() => null)
     const s = settings as Record<string, string | null> | null
+
+    // Helper: resolve key from body → decrypted DB → env var
+    function resolveKey(dbKey: string | null | undefined, envKey: string | undefined): string | null {
+      if (bodyKey) return bodyKey
+      if (dbKey)   return decryptKey(dbKey)
+      return envKey || null
+    }
 
     switch (provider) {
 
       // ── TAVILY ───────────────────────────────────────────────────────────────
       case "tavily": {
-        const key = bodyKey || s?.tavilyApiKey || process.env.TAVILY_API_KEY
+        const key = resolveKey(s?.tavilyApiKey, process.env.TAVILY_API_KEY)
         if (!key) return NextResponse.json({ success: false, error: "No Tavily API key provided" })
         try {
           const res = await fetch("https://api.tavily.com/search", {
@@ -51,14 +63,14 @@ export async function POST(req: Request) {
           if (res.ok) return NextResponse.json({ success: true, message: "Tavily API key is valid ✓" })
           const err = await res.json().catch(() => ({}))
           return NextResponse.json({ success: false, error: (err as { detail?: string }).detail || `HTTP ${res.status}` })
-        } catch (e) {
-          return NextResponse.json({ success: false, error: `Connection failed: ${String(e)}` })
+        } catch {
+          return NextResponse.json({ success: false, error: "Connection to Tavily failed" })
         }
       }
 
       // ── EXA ─────────────────────────────────────────────────────────────────
       case "exa": {
-        const key = bodyKey || s?.exaApiKey || process.env.EXA_API_KEY
+        const key = resolveKey(s?.exaApiKey, process.env.EXA_API_KEY)
         if (!key) return NextResponse.json({ success: false, error: "No Exa API key provided" })
         try {
           const res = await fetch("https://api.exa.ai/search", {
@@ -70,21 +82,21 @@ export async function POST(req: Request) {
           if (res.ok) return NextResponse.json({ success: true, message: "Exa API key is valid ✓" })
           const err = await res.json().catch(() => ({}))
           return NextResponse.json({ success: false, error: (err as { error?: string }).error || `HTTP ${res.status}` })
-        } catch (e) {
-          return NextResponse.json({ success: false, error: `Connection failed: ${String(e)}` })
+        } catch {
+          return NextResponse.json({ success: false, error: "Connection to Exa failed" })
         }
       }
 
       // ── SERPAPI ──────────────────────────────────────────────────────────────
       case "serpapi": {
-        const key = bodyKey || s?.serpApiKey || process.env.SERPAPI_KEY
+        const key = resolveKey(s?.serpApiKey, process.env.SERPAPI_KEY)
         if (!key) return NextResponse.json({ success: false, error: "No SerpAPI key provided" })
         try {
           const res = await fetch(`https://serpapi.com/account?api_key=${key}`, {
             signal: AbortSignal.timeout(8000),
           })
           if (res.ok) {
-            const data = await res.json()
+            const data    = await res.json()
             const credits = (data as { total_searches_left?: number }).total_searches_left
             return NextResponse.json({
               success: true,
@@ -92,14 +104,14 @@ export async function POST(req: Request) {
             })
           }
           return NextResponse.json({ success: false, error: `HTTP ${res.status}: Invalid API key` })
-        } catch (e) {
-          return NextResponse.json({ success: false, error: `Connection failed: ${String(e)}` })
+        } catch {
+          return NextResponse.json({ success: false, error: "Connection to SerpAPI failed" })
         }
       }
 
       // ── FIRECRAWL ────────────────────────────────────────────────────────────
       case "firecrawl": {
-        const key = bodyKey || s?.firecrawlApiKey || process.env.FIRECRAWL_API_KEY
+        const key = resolveKey(s?.firecrawlApiKey, process.env.FIRECRAWL_API_KEY)
         if (!key) return NextResponse.json({ success: false, error: "No Firecrawl API key provided" })
         try {
           const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
@@ -114,12 +126,15 @@ export async function POST(req: Request) {
           if (res.status === 401 || res.status === 403) {
             return NextResponse.json({ success: false, error: "Invalid Firecrawl API key" })
           }
-          // Any other 2xx/4xx that isn't auth means key is valid but maybe rate-limited
           const data = await res.json().catch(() => ({}))
           const msg  = (data as { error?: string }).error
-          return NextResponse.json({ success: msg ? false : true, error: msg, message: msg ? undefined : "Firecrawl API key is valid ✓" })
-        } catch (e) {
-          return NextResponse.json({ success: false, error: `Connection failed: ${String(e)}` })
+          return NextResponse.json({
+            success: !msg,
+            error:   msg,
+            message: msg ? undefined : "Firecrawl API key is valid ✓",
+          })
+        } catch {
+          return NextResponse.json({ success: false, error: "Connection to Firecrawl failed" })
         }
       }
 
@@ -131,18 +146,16 @@ export async function POST(req: Request) {
           return NextResponse.json({ success: false, error: "URL must start with http:// or https://" })
         }
         try {
-          const res = await fetch(`${url.replace(/\/$/, "")}/health`, {
-            signal: AbortSignal.timeout(8000),
-          })
+          const base   = url.replace(/\/$/, "")
+          const res    = await fetch(`${base}/health`, { signal: AbortSignal.timeout(8000) })
           if (res.ok) return NextResponse.json({ success: true, message: "Crawl4AI instance is reachable ✓" })
-          // Some self-hosted instances don't have /health — try root
-          const rootRes = await fetch(url.replace(/\/$/, ""), { signal: AbortSignal.timeout(5000) })
+          const rootRes = await fetch(base, { signal: AbortSignal.timeout(5000) })
           if (rootRes.ok || rootRes.status < 500) {
             return NextResponse.json({ success: true, message: "Crawl4AI instance is reachable ✓" })
           }
           return NextResponse.json({ success: false, error: `Instance returned HTTP ${res.status}` })
-        } catch (e) {
-          return NextResponse.json({ success: false, error: `Cannot reach Crawl4AI at ${url}: ${String(e)}` })
+        } catch {
+          return NextResponse.json({ success: false, error: `Cannot reach Crawl4AI at ${url}` })
         }
       }
 
@@ -151,20 +164,16 @@ export async function POST(req: Request) {
         const cloudName = bodyKey || s?.cloudinaryCloudName || process.env.CLOUDINARY_CLOUD_NAME
         if (!cloudName) return NextResponse.json({ success: false, error: "No Cloudinary Cloud Name provided" })
         try {
-          // Ping the Cloudinary ping endpoint — public, no auth needed to verify cloud name exists
-          const res = await fetch(`https://res.cloudinary.com/${cloudName}/image/upload/sample`, {
-            method: "HEAD",
-            signal: AbortSignal.timeout(8000),
-          })
-          // 200 = cloud name valid + sample image exists
-          // 404 = cloud name valid but no sample (still valid config)
-          // 400/401 = invalid cloud name
+          const res = await fetch(
+            `https://res.cloudinary.com/${cloudName}/image/upload/sample`,
+            { method: "HEAD", signal: AbortSignal.timeout(8000) }
+          )
           if (res.ok || res.status === 404) {
             return NextResponse.json({ success: true, message: `Cloudinary cloud "${cloudName}" is valid ✓` })
           }
           return NextResponse.json({ success: false, error: `Invalid Cloudinary Cloud Name (HTTP ${res.status})` })
-        } catch (e) {
-          return NextResponse.json({ success: false, error: `Connection failed: ${String(e)}` })
+        } catch {
+          return NextResponse.json({ success: false, error: "Connection to Cloudinary failed" })
         }
       }
 

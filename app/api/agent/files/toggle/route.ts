@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server"
 import { requireWriteAuth } from "@/lib/api-auth"
 import { prisma } from "@/lib/prisma"
+import { toApiError } from "@/lib/errors"
 
 export async function POST(req: Request) {
   const authResult = await requireWriteAuth()
@@ -21,9 +22,7 @@ export async function POST(req: Request) {
     const { id, isActive } = body
 
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const file = await (prisma as any).agentFile.findUnique({
+    const file = await prisma.agentFile.findUnique({
       where:  { id },
       select: { id: true, name: true, type: true, isActive: true },
     })
@@ -33,8 +32,7 @@ export async function POST(req: Request) {
 
     // ── Safety: at least one system file must stay active ─────────────────────
     if (file.type === "system" && !newState) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const activeCount = await (prisma as any).agentFile.count({
+      const activeCount = await prisma.agentFile.count({
         where: { type: "system", isActive: true, id: { not: id } },
       })
       if (activeCount === 0) {
@@ -44,9 +42,7 @@ export async function POST(req: Request) {
         }, { status: 400 })
       }
     }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const updated = await (prisma as any).agentFile.update({
+    const updated = await prisma.agentFile.update({
       where: { id },
       data:  { isActive: newState },
     })
@@ -60,6 +56,6 @@ export async function POST(req: Request) {
       message:      `"${file.name}" ${newState ? "activated" : "deactivated"}.`,
     })
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    return NextResponse.json({ error: toApiError(err) }, { status: 500 })
   }
 }

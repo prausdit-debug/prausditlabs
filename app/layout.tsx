@@ -52,9 +52,10 @@ export const metadata: Metadata = {
     title: "Prausdit Research Lab",
     description: "AI Agent Research Environment — Building Protroit Agent & ProtroitOS",
   },
+  // Private internal app — prevent search engine indexing
   robots: {
-    index: true,
-    follow: true,
+    index: false,
+    follow: false,
   },
 }
 
