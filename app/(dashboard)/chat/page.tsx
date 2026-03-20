@@ -601,7 +601,58 @@ export default function FullscreenChatPage() {
     abortRef.current = new AbortController()
 
     try {
-      const history = messages.slice(-10).map(m => ({ role: m.role, content: m.content }))
+      // Fix 1: history window 10 -> 20 for wider context
+      // Fix 2: enrich assistant messages with tool result summaries so the
+      //        agent remembers what it created/found in previous turns.
+      const history = messages.slice(-20).map(m => {
+        if (m.role === "assistant" && m.agentSteps && m.agentSteps.length > 0) {
+          const toolLines = m.agentSteps
+            .filter(s => s.type === "tool_result" && s.tool)
+            .map(s => {
+              const r = s.result as Record<string, unknown> | null
+              if (!r) return `[${s.tool}: done]`
+              if (r.id && r.title)  return `[${s.tool}: created "${r.title}" id=${r.id}]`
+              if (r.id && r.name)   return `[${s.tool}: created "${r.name}" id=${r.id}]`
+              if (r.id && r.slug)   return `[${s.tool}: created slug=${r.slug} id=${r.id}]`
+              if (r.switchedTo && typeof r.switchedTo === "object") {
+                const p = r.switchedTo as Record<string, unknown>
+                return `[${s.tool}: switched to project "${p.name}" id=${p.id}]`
+              }
+              if (r.totalFound !== undefined) return `[${s.tool}: found ${r.totalFound} results]`
+              return `[${s.tool}: done]`
+            })
+          const toolContext = toolLines.length > 0
+            ? `<tool_context>
+${toolLines.join("\n")}
+</tool_context>
+
+`
+            : ""
+          return { role: m.role as "user" | "assistant", content: toolContext + m.content }
+        }
+        return { role: m.role as "user" | "assistant", content: m.content }
+      })
+      // Fix 3: Build a compact session memory digest from all tool results
+      // in this session so the agent remembers what it has already created.
+      const sessionMemoryLines: string[] = []
+      messages.forEach(m => {
+        if (m.role === "assistant" && m.agentSteps) {
+          m.agentSteps
+            .filter(s => s.type === "tool_result" && s.tool)
+            .forEach(s => {
+              const r = s.result as Record<string, unknown> | null
+              if (!r) return
+              if (r.id && r.title)  sessionMemoryLines.push(`- ${s.tool}: "${r.title}" (id: ${r.id})`)
+              else if (r.id && r.name) sessionMemoryLines.push(`- ${s.tool}: "${r.name}" (id: ${r.id})`)
+              else if (r.id && r.slug) sessionMemoryLines.push(`- ${s.tool}: slug=${r.slug} (id: ${r.id})`)
+              else if (r.newProjectId) sessionMemoryLines.push(`- switch_project: now in project id=${r.newProjectId}`)
+            })
+        }
+      })
+      const sessionMemory = sessionMemoryLines.length > 0
+        ? sessionMemoryLines.join("\n")
+        : null
+
       const res = await fetch("/api/agent", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -610,6 +661,7 @@ export default function FullscreenChatPage() {
           provider: actualProvider,
           model: actualModel.id,
           currentProjectId: selectedProject?.id || null,
+          sessionMemory,
         }),
         signal: abortRef.current.signal,
       })

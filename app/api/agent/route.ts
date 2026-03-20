@@ -4,17 +4,7 @@
  * Agentic chat endpoint powered by the Vercel AI SDK.
  * Now accepts `currentProjectId` from the client and forwards it to
  * the agent engine for project-scoped tool injection.
- *
  * Auth: Requires a Clerk session.
- *
- * Stream format (SSE):
- *   data: { type: "status",        text: "Searching...",  step: N }
- *   data: { type: "tool_call",     tool: "...", text: "...", args: {...}, step: N }
- *   data: { type: "tool_result",   tool: "...", result: {...}, step: N }
- *   data: { type: "text",          text: "..." }
- *   data: { type: "project_switch", projectId: "...", projectName: "..." }
- *   data: { type: "done" }
- *   data: { type: "error",         text: "..." }
  */
 
 import { NextResponse } from "next/server"
@@ -34,7 +24,8 @@ export async function POST(req: Request) {
       history = [],
       provider = "gemini",
       model = "gemini-2.5-flash",
-      currentProjectId,   // ← NEW: project context from UI
+      currentProjectId,   // project context from UI
+      sessionMemory,      // Fix 3: session entity memory digest from UI
     } = body
 
     if (!message?.trim()) {
@@ -46,7 +37,8 @@ export async function POST(req: Request) {
       history,
       provider,
       model,
-      currentProjectId: currentProjectId || null,  // ← forwarded to engine
+      currentProjectId: currentProjectId || null,
+      sessionMemory: sessionMemory || null,
     })
 
     return new Response(stream, {

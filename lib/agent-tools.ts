@@ -1,14 +1,5 @@
 /**
  * Prausdit Research Lab — Agent Tools (AI SDK v6)
- *
- * UPGRADED (Project Context Awareness):
- *   - list_projects      -> list all projects with counts
- *   - switch_project     -> switch to a different project by name or ID
- *   - searchInternalDocs now accepts optional projectId for project-scoped search
- *   - getKnowledgeGraph  now accepts optional projectId for project-scoped graph
- *   - buildProjectScopedTools() - factory that returns tools with currentProjectId
- *     auto-injected into every create/update operation (agent never needs to
- *     manually pass projectId - it comes from the session context)
  */
 
 import { tool } from "ai"
@@ -22,7 +13,8 @@ type InputJsonValue =
   | { [key: string]: InputJsonValue }
   | InputJsonValue[]
 
-// Utilities
+// ── Utilities ──────────────────────
+
 function stripHtml(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -49,72 +41,172 @@ function isSafeUrl(url: string): boolean {
   return !BLOCKED_HOSTS.some((b) => url.includes(b))
 }
 
-// Research interfaces & helpers
-interface ResearchResult { title: string; url: string; snippet: string; content?: string; source: string; score?: number }
-interface DeepResearchOutput { query: string; results: ResearchResult[]; summary: string; sources: string[]; provider: string; crawlProvider?: string; crawledCount: number; error?: string }
-
-function getResearchConfig() {
-  return {
-    tavily:    process.env.TAVILY_API_KEY    || null,
-    brave:     process.env.BRAVE_API_KEY     || null,
-    serpapi:   process.env.SERPAPI_KEY       || null,
-    firecrawl: process.env.FIRECRAWL_API_KEY || null,
-    crawl4ai:  process.env.CRAWL4AI_API_URL  || null,
-  }
+// from the Settings UI), then falls back
+interface ResearchConfig {
+  tavily:    string | null
+  brave:     string | null
+  serpapi:   string | null
+  firecrawl: string | null
+  crawl4ai:  string | null
 }
 
-async function searchTavily(query: string, cfg: ReturnType<typeof getResearchConfig>): Promise<ResearchResult[] | null> {
+let _cachedResearchConfig: ResearchConfig | null = null
+let _cacheExpiry = 0
+
+async function getResearchConfig(): Promise<ResearchConfig> {
+  // Cache for 60 seconds to avoid a DB hit on every tool call
+  if (_cachedResearchConfig && Date.now() < _cacheExpiry) {
+    return _cachedResearchConfig
+  }
+
+  let dbSettings: {
+    tavilyApiKey?: string | null
+    braveApiKey?: string | null
+    serpApiKey?: string | null
+    firecrawlApiKey?: string | null
+    crawl4aiUrl?: string | null
+  } | null = null
+
+  try {
+    dbSettings = await prisma.aISettings.findFirst({
+      select: {
+        tavilyApiKey: true,
+        braveApiKey: true,
+        serpApiKey: true,
+        firecrawlApiKey: true,
+        crawl4aiUrl: true,
+      },
+    })
+  } catch {
+    // DB unavailable — fall through to env vars
+  }
+
+  const cfg: ResearchConfig = {
+    tavily:    dbSettings?.tavilyApiKey    || process.env.TAVILY_API_KEY    || null,
+    brave:     dbSettings?.braveApiKey     || process.env.BRAVE_API_KEY     || null,
+    serpapi:   dbSettings?.serpApiKey      || process.env.SERPAPI_KEY       || null,
+    firecrawl: dbSettings?.firecrawlApiKey || process.env.FIRECRAWL_API_KEY || null,
+    crawl4ai:  dbSettings?.crawl4aiUrl     || process.env.CRAWL4AI_API_URL  || null,
+  }
+
+  _cachedResearchConfig = cfg
+  _cacheExpiry = Date.now() + 60_000
+  return cfg
+}
+
+// Exported so the settings route can bust the cache when keys are updated
+export function bustResearchConfigCache() {
+  _cachedResearchConfig = null
+  _cacheExpiry = 0
+}
+
+// ── Research interfaces ───────────────────────────────────────────────────────
+
+interface ResearchResult {
+  title: string
+  url: string
+  snippet: string
+  content?: string
+  source: string
+  score?: number
+}
+
+interface DeepResearchOutput {
+  query: string
+  results: ResearchResult[]
+  summary: string
+  sources: string[]
+  provider: string
+  crawlProvider?: string
+  crawledCount: number
+  error?: string
+}
+
+// ── Search providers ──────────────────────────────────────────────────────────
+
+async function searchTavily(query: string, cfg: ResearchConfig): Promise<ResearchResult[] | null> {
   if (!cfg.tavily) return null
   try {
-    const res = await fetch("https://api.tavily.com/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: cfg.tavily, query, search_depth: "advanced", max_results: 6 }), signal: AbortSignal.timeout(12000) })
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: cfg.tavily, query, search_depth: "advanced", max_results: 6 }),
+      signal: AbortSignal.timeout(12000),
+    })
     if (!res.ok) return null
     const data = await res.json()
-    return (data.results || []).map((r: { title?: string; url: string; content?: string; score?: number }) => ({ title: r.title || r.url, url: r.url, snippet: r.content || "", source: "tavily", score: r.score }))
+    return (data.results || []).map((r: { title?: string; url: string; content?: string; score?: number }) => ({
+      title: r.title || r.url, url: r.url, snippet: r.content || "", source: "tavily", score: r.score,
+    }))
   } catch { return null }
 }
 
-async function searchBrave(query: string, cfg: ReturnType<typeof getResearchConfig>): Promise<ResearchResult[] | null> {
+async function searchBrave(query: string, cfg: ResearchConfig): Promise<ResearchResult[] | null> {
   if (!cfg.brave) return null
   try {
-    const res = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=6`, { headers: { "Accept": "application/json", "X-Subscription-Token": cfg.brave }, signal: AbortSignal.timeout(10000) })
+    const res = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=6`, {
+      headers: { "Accept": "application/json", "X-Subscription-Token": cfg.brave },
+      signal: AbortSignal.timeout(10000),
+    })
     if (!res.ok) return null
     const data = await res.json()
-    return (data.web?.results || []).map((r: { title: string; url: string; description?: string }) => ({ title: r.title, url: r.url, snippet: r.description || "", source: "brave" }))
+    return (data.web?.results || []).map((r: { title: string; url: string; description?: string }) => ({
+      title: r.title, url: r.url, snippet: r.description || "", source: "brave",
+    }))
   } catch { return null }
 }
 
-async function searchSerpApi(query: string, cfg: ReturnType<typeof getResearchConfig>): Promise<ResearchResult[] | null> {
+async function searchSerpApi(query: string, cfg: ResearchConfig): Promise<ResearchResult[] | null> {
   if (!cfg.serpapi) return null
   try {
-    const res = await fetch(`https://serpapi.com/search.json?q=${encodeURIComponent(query)}&num=6&api_key=${cfg.serpapi}`, { signal: AbortSignal.timeout(12000) })
+    const res = await fetch(`https://serpapi.com/search.json?q=${encodeURIComponent(query)}&num=6&api_key=${cfg.serpapi}`, {
+      signal: AbortSignal.timeout(12000),
+    })
     if (!res.ok) return null
     const data = await res.json()
-    return (data.organic_results || []).map((r: { title: string; link: string; snippet?: string }) => ({ title: r.title, url: r.link, snippet: r.snippet || "", source: "serpapi" }))
+    return (data.organic_results || []).map((r: { title: string; link: string; snippet?: string }) => ({
+      title: r.title, url: r.link, snippet: r.snippet || "", source: "serpapi",
+    }))
   } catch { return null }
 }
 
 async function searchWithFallback(query: string): Promise<{ results: ResearchResult[]; provider: string }> {
-  const cfg = getResearchConfig()
-  const tavily = await searchTavily(query, cfg); if (tavily && tavily.length > 0) return { results: tavily, provider: "tavily" }
-  const brave  = await searchBrave(query, cfg);  if (brave  && brave.length  > 0) return { results: brave,  provider: "brave"   }
-  const serp   = await searchSerpApi(query, cfg); if (serp   && serp.length   > 0) return { results: serp,   provider: "serpapi" }
+  const cfg = await getResearchConfig()
+  const tavily = await searchTavily(query, cfg)
+  if (tavily && tavily.length > 0) return { results: tavily, provider: "tavily" }
+  const brave = await searchBrave(query, cfg)
+  if (brave && brave.length > 0) return { results: brave, provider: "brave" }
+  const serp = await searchSerpApi(query, cfg)
+  if (serp && serp.length > 0) return { results: serp, provider: "serpapi" }
   return { results: [], provider: "none" }
 }
 
-async function crawlFirecrawl(url: string, cfg: ReturnType<typeof getResearchConfig>): Promise<string | null> {
+// ── Crawl providers ───────────────────────────────────────────────────────────
+
+async function crawlFirecrawl(url: string, cfg: ResearchConfig): Promise<string | null> {
   if (!cfg.firecrawl || !isSafeUrl(url)) return null
   try {
-    const res = await fetch("https://api.firecrawl.dev/v1/scrape", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${cfg.firecrawl}` }, body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }), signal: AbortSignal.timeout(20000) })
+    const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${cfg.firecrawl}` },
+      body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
+      signal: AbortSignal.timeout(20000),
+    })
     if (!res.ok) return null
     const data = await res.json()
     return data.data?.markdown ? truncate(data.data.markdown) : null
   } catch { return null }
 }
 
-async function crawlCrawl4AI(url: string, cfg: ReturnType<typeof getResearchConfig>): Promise<string | null> {
+async function crawlCrawl4AI(url: string, cfg: ResearchConfig): Promise<string | null> {
   if (!cfg.crawl4ai || !isSafeUrl(url)) return null
   try {
-    const res = await fetch(`${cfg.crawl4ai}/crawl`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls: [url], word_count_threshold: 50 }), signal: AbortSignal.timeout(20000) })
+    const res = await fetch(`${cfg.crawl4ai}/crawl`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls: [url], word_count_threshold: 50 }),
+      signal: AbortSignal.timeout(20000),
+    })
     if (!res.ok) return null
     const data = await res.json()
     const result = Array.isArray(data.results) ? data.results[0] : data
@@ -125,7 +217,10 @@ async function crawlCrawl4AI(url: string, cfg: ReturnType<typeof getResearchConf
 async function crawlBasicFetch(url: string): Promise<string | null> {
   if (!isSafeUrl(url)) return null
   try {
-    const res = await fetch(url, { headers: { "User-Agent": "Prausdit-LabBot/2.0", "Accept": "text/html,text/plain,text/markdown" }, signal: AbortSignal.timeout(10000) })
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Prausdit-LabBot/2.0", "Accept": "text/html,text/plain,text/markdown" },
+      signal: AbortSignal.timeout(10000),
+    })
     if (!res.ok) return null
     const ct = res.headers.get("content-type") || ""
     const raw = await res.text()
@@ -134,10 +229,13 @@ async function crawlBasicFetch(url: string): Promise<string | null> {
 }
 
 async function crawlWithFallback(url: string): Promise<{ content: string | null; provider: string }> {
-  const cfg = getResearchConfig()
-  const fc = await crawlFirecrawl(url, cfg); if (fc) return { content: fc, provider: "firecrawl" }
-  const c4 = await crawlCrawl4AI(url, cfg);  if (c4) return { content: c4, provider: "crawl4ai"  }
-  const basic = await crawlBasicFetch(url);  if (basic) return { content: basic, provider: "basic-fetch" }
+  const cfg = await getResearchConfig()
+  const fc = await crawlFirecrawl(url, cfg)
+  if (fc) return { content: fc, provider: "firecrawl" }
+  const c4 = await crawlCrawl4AI(url, cfg)
+  if (c4) return { content: c4, provider: "crawl4ai" }
+  const basic = await crawlBasicFetch(url)
+  if (basic) return { content: basic, provider: "basic-fetch" }
   return { content: null, provider: "none" }
 }
 
@@ -146,9 +244,16 @@ async function deepResearch(query: string, options: { maxCrawl?: number; crawlEn
   try {
     const { results: searchResults, provider } = await searchWithFallback(query)
     if (searchResults.length === 0) {
-      return { query, results: [], sources: [], provider, crawledCount: 0, summary: provider === "none" ? "No search API keys configured." : `No results for "${query}".`, error: provider === "none" ? "No search API keys configured." : undefined }
+      return {
+        query, results: [], sources: [], provider, crawledCount: 0,
+        summary: provider === "none"
+          ? "No search API keys configured. Add Tavily, Brave, or SerpAPI keys in Settings → Manage API."
+          : `No results found for "${query}".`,
+        error: provider === "none" ? "No search API keys configured." : undefined,
+      }
     }
-    let crawlProvider: string | undefined, crawledCount = 0
+    let crawlProvider: string | undefined
+    let crawledCount = 0
     if (crawlEnabled) {
       for (const result of searchResults.filter(r => isSafeUrl(r.url)).slice(0, maxCrawl)) {
         const { content, provider: cp } = await crawlWithFallback(result.url)
@@ -156,33 +261,88 @@ async function deepResearch(query: string, options: { maxCrawl?: number; crawlEn
       }
     }
     const sources = [...new Set(searchResults.map(r => r.url))]
-    const snippets = searchResults.slice(0, 4).map((r, i) => `${i + 1}. **${r.title}** - ${r.snippet.slice(0, 200)}`).join("\n")
-    return { query, results: searchResults, summary: `Found ${searchResults.length} results via ${provider} for "${query}":\n\n${snippets}`, sources, provider, crawlProvider, crawledCount }
+    const snippets = searchResults.slice(0, 4).map((r, i) => `${i + 1}. **${r.title}** — ${r.snippet.slice(0, 200)}`).join("\n")
+    return {
+      query, results: searchResults,
+      summary: `Found ${searchResults.length} results via ${provider} for "${query}":\n\n${snippets}`,
+      sources, provider, crawlProvider, crawledCount,
+    }
   } catch (err) {
     return { query, results: [], summary: `Research failed: ${String(err)}`, sources: [], provider: "error", crawledCount: 0, error: String(err) }
   }
 }
 
-// Cloudinary helpers
-function isCloudinaryConfigured(): boolean {
-  return !!process.env.CLOUDINARY_CLOUD_NAME && (!!process.env.CLOUDINARY_UPLOAD_PRESET || (!!process.env.CLOUDINARY_API_KEY && !!process.env.CLOUDINARY_API_SECRET))
+// ── Cloudinary — DB-first, env fallback ───────────────────────────────────────
+//
+// Same fix pattern: read from AISettings DB first, fall back to env vars.
+
+interface CloudinaryConfig {
+  cloudName:    string | null
+  uploadPreset: string | null
+  apiKey:       string | null
+  folder:       string
 }
 
-interface CloudinaryUploadResult { url: string; publicId: string; width?: number; height?: number; format?: string; bytes?: number }
+async function getCloudinaryConfig(): Promise<CloudinaryConfig> {
+  let dbSettings: {
+    cloudinaryCloudName?: string | null
+    cloudinaryUploadPreset?: string | null
+    cloudinaryApiKey?: string | null
+  } | null = null
 
-async function uploadToCloudinary(imageData: Buffer | string, options: { filename?: string; folder?: string; tags?: string[] } = {}): Promise<CloudinaryUploadResult | null> {
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME
-  if (!cloudName) return null
-  const base64 = Buffer.isBuffer(imageData) ? `data:image/png;base64,${imageData.toString("base64")}` : imageData.startsWith("data:") ? imageData : `data:image/png;base64,${imageData}`
-  const folder = options.folder || process.env.CLOUDINARY_FOLDER || "prausdit-lab"
-  const tags = options.tags || ["agent-generated"]
+  try {
+    dbSettings = await prisma.aISettings.findFirst({
+      select: {
+        cloudinaryCloudName: true,
+        cloudinaryUploadPreset: true,
+        cloudinaryApiKey: true,
+      },
+    })
+  } catch { /* fall through */ }
+
+  return {
+    cloudName:    dbSettings?.cloudinaryCloudName    || process.env.CLOUDINARY_CLOUD_NAME    || null,
+    uploadPreset: dbSettings?.cloudinaryUploadPreset || process.env.CLOUDINARY_UPLOAD_PRESET || null,
+    apiKey:       dbSettings?.cloudinaryApiKey       || process.env.CLOUDINARY_API_KEY       || null,
+    folder:       process.env.CLOUDINARY_FOLDER || "prausdit-lab",
+  }
+}
+
+async function isCloudinaryConfigured(): Promise<boolean> {
+  const cfg = await getCloudinaryConfig()
+  return !!cfg.cloudName && (!!cfg.uploadPreset || !!cfg.apiKey)
+}
+
+interface CloudinaryUploadResult {
+  url: string; publicId: string; width?: number; height?: number; format?: string; bytes?: number
+}
+
+async function uploadToCloudinary(
+  imageData: Buffer | string,
+  options: { filename?: string; folder?: string; tags?: string[] } = {}
+): Promise<CloudinaryUploadResult | null> {
+  const cfg = await getCloudinaryConfig()
+  if (!cfg.cloudName) return null
+
+  const base64 = Buffer.isBuffer(imageData)
+    ? `data:image/png;base64,${imageData.toString("base64")}`
+    : imageData.startsWith("data:") ? imageData : `data:image/png;base64,${imageData}`
+
+  const folder   = options.folder   || cfg.folder
+  const tags     = options.tags     || ["agent-generated"]
   const filename = options.filename || `img-${Date.now()}`
-  const preset = process.env.CLOUDINARY_UPLOAD_PRESET
-  if (preset) {
+
+  if (cfg.uploadPreset) {
     try {
       const body = new FormData()
-      body.append("file", base64); body.append("upload_preset", preset); body.append("folder", folder); body.append("public_id", filename); body.append("tags", tags.join(","))
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: "POST", body, signal: AbortSignal.timeout(30000) })
+      body.append("file", base64)
+      body.append("upload_preset", cfg.uploadPreset)
+      body.append("folder", folder)
+      body.append("public_id", filename)
+      body.append("tags", tags.join(","))
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${cfg.cloudName}/image/upload`, {
+        method: "POST", body, signal: AbortSignal.timeout(30000),
+      })
       if (!res.ok) return null
       const data = await res.json()
       return { url: data.secure_url, publicId: data.public_id, width: data.width, height: data.height, format: data.format, bytes: data.bytes }
@@ -191,7 +351,10 @@ async function uploadToCloudinary(imageData: Buffer | string, options: { filenam
   return null
 }
 
-async function downloadAndUpload(imageUrl: string, options: { filename?: string; folder?: string; tags?: string[] } = {}): Promise<CloudinaryUploadResult | null> {
+async function downloadAndUpload(
+  imageUrl: string,
+  options: { filename?: string; folder?: string; tags?: string[] } = {}
+): Promise<CloudinaryUploadResult | null> {
   try {
     if (!imageUrl.startsWith("https://")) return null
     const res = await fetch(imageUrl, { signal: AbortSignal.timeout(20000) })
@@ -201,8 +364,15 @@ async function downloadAndUpload(imageUrl: string, options: { filename?: string;
   } catch { return null }
 }
 
-// Plan markdown builder
-function buildPlanMarkdown(title: string, overview: string, sections: Array<{ heading: string; subheading?: string; description: string; steps: string[]; toolsRequired?: string[] }>, sources?: Array<{ title: string; url: string }>, imagePlan?: { needed: boolean; description?: string } | null): string {
+// ── Plan markdown builder ─────────────────────────────────────────────────────
+
+function buildPlanMarkdown(
+  title: string,
+  overview: string,
+  sections: Array<{ heading: string; subheading?: string; description: string; steps: string[]; toolsRequired?: string[] }>,
+  sources?: Array<{ title: string; url: string }>,
+  imagePlan?: { needed: boolean; description?: string } | null
+): string {
   const lines: string[] = [`# Plan: ${title}`, "", `> ${overview}`, "", "---", ""]
   sections.forEach((s, i) => {
     lines.push(`## ${i + 1}. ${s.heading}`)
@@ -218,14 +388,14 @@ function buildPlanMarkdown(title: string, overview: string, sections: Array<{ he
   return lines.join("\n")
 }
 
-// ============================================================
+// ════════════════════════════════════════════════════════════════════════════
 // TOOLS
-// ============================================================
+// ════════════════════════════════════════════════════════════════════════════
 
 export const searchInternalDocs = tool({
   description: "Search the internal knowledge base. Results are automatically scoped to the current project when one is selected.",
   inputSchema: z.object({
-    query: z.string().describe("Search query"),
+    query: z.string(),
     sources: z.array(z.enum(["docs", "experiments", "datasets", "notes", "roadmap", "models"])).optional(),
     limit: z.number().int().min(1).max(10).optional().default(4),
     projectId: z.string().optional().describe("Auto-injected from session context."),
@@ -261,7 +431,7 @@ export const searchInternalDocs = tool({
 })
 
 export const getKnowledgeGraph = tool({
-  description: "Retrieve a knowledge graph showing relationships between CRM entities. Results scoped to current project when one is selected.",
+  description: "Retrieve a knowledge graph showing relationships between CRM entities. Scoped to the current project.",
   inputSchema: z.object({
     includeMetrics: z.boolean().optional().default(false),
     projectId: z.string().optional().describe("Auto-injected from session context."),
@@ -292,30 +462,26 @@ export const readDocument = tool({
   execute: async ({ slug }) => {
     try {
       const page = await prisma.documentationPage.findUnique({ where: { slug } })
-      if (!page) return { error: `No documentation page found with slug "${slug}"` }
+      if (!page) return { error: `No page found with slug "${slug}"` }
       return { id: page.id, title: page.title, slug: page.slug, section: page.section, content: page.content, tags: page.tags, progress: page.progress }
     } catch (err) { return { error: String(err) } }
   },
 })
 
 export const createDocument = tool({
-  description: "Create a new documentation page. The projectId is automatically injected from the current session context - do not pass it manually.",
+  description: "Create a new documentation page. projectId is auto-injected from session context.",
   inputSchema: z.object({
     title: z.string(), slug: z.string(), section: z.string(), content: z.string(),
     tags: z.array(z.string()).optional(),
     progress: z.enum(["NOT_STARTED", "IN_PROGRESS", "COMPLETED"]).optional().default("COMPLETED"),
-    projectId: z.string().optional().describe("Auto-injected from session context."),
+    projectId: z.string().optional(),
   }),
   execute: async ({ title, slug, section, content, tags, progress, projectId }) => {
     try {
       const existing = await prisma.documentationPage.findUnique({ where: { slug } })
-      if (existing) {
-        const newSlug = `${slug}-${Date.now()}`
-        const page = await prisma.documentationPage.create({ data: { title, slug: newSlug, section, content, tags: tags || [], order: 99, progress: progress ?? "COMPLETED", projectId: projectId ?? null } })
-        return { success: true, id: page.id, slug: page.slug, projectId: page.projectId, note: "Slug taken - used unique alternative" }
-      }
-      const page = await prisma.documentationPage.create({ data: { title, slug, section, content, tags: tags || [], order: 99, progress: progress ?? "COMPLETED", projectId: projectId ?? null } })
-      return { success: true, id: page.id, slug: page.slug, title: page.title, projectId: page.projectId }
+      const finalSlug = existing ? `${slug}-${Date.now()}` : slug
+      const page = await prisma.documentationPage.create({ data: { title, slug: finalSlug, section, content, tags: tags || [], order: 99, progress: progress ?? "COMPLETED", projectId: projectId ?? null } })
+      return { success: true, id: page.id, slug: page.slug, title: page.title, projectId: page.projectId, ...(existing ? { note: "Slug taken — used unique alternative" } : {}) }
     } catch (err) { return { success: false, error: String(err) } }
   },
 })
@@ -332,10 +498,10 @@ export const updateDocument = tool({
 })
 
 export const createNote = tool({
-  description: "Create a new research note. The projectId is automatically injected from the current session context.",
+  description: "Create a new research note. projectId is auto-injected from session context.",
   inputSchema: z.object({
     title: z.string(), content: z.string(), tags: z.array(z.string()).optional(), pinned: z.boolean().optional().default(false),
-    projectId: z.string().optional().describe("Auto-injected from session context."),
+    projectId: z.string().optional(),
   }),
   execute: async ({ title, content, tags, pinned, projectId }) => {
     try {
@@ -357,12 +523,12 @@ export const updateNote = tool({
 })
 
 export const createRoadmapStep = tool({
-  description: "Create a new roadmap step/phase entry. The projectId is automatically injected from the current session context.",
+  description: "Create a new roadmap step/phase entry. projectId is auto-injected from session context.",
   inputSchema: z.object({
     title: z.string(), phase: z.number().int(), description: z.string(),
     priority: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional().default("MEDIUM"),
     milestone: z.string().optional(), tasks: z.array(z.string()).optional(), estimatedCompletion: z.string().optional(),
-    projectId: z.string().optional().describe("Auto-injected from session context."),
+    projectId: z.string().optional(),
   }),
   execute: async ({ title, phase, description, priority, milestone, tasks, estimatedCompletion, projectId }) => {
     try {
@@ -395,12 +561,12 @@ export const completeRoadmapTask = tool({
 })
 
 export const createExperiment = tool({
-  description: "Create a new ML experiment entry. The projectId is automatically injected from the current session context.",
+  description: "Create a new ML experiment entry. projectId is auto-injected from session context.",
   inputSchema: z.object({
     name: z.string(), baseModel: z.string(), description: z.string().optional(), method: z.string().optional(),
     loraRank: z.number().optional(), loraAlpha: z.number().optional(), batchSize: z.number().optional(), learningRate: z.number().optional(), epochs: z.number().optional(),
     datasetId: z.string().optional(), config: z.record(z.string(), z.unknown()).optional(),
-    projectId: z.string().optional().describe("Auto-injected from session context."),
+    projectId: z.string().optional(),
   }),
   execute: async ({ name, baseModel, description, method, loraRank, loraAlpha, batchSize, learningRate, epochs, datasetId, config, projectId }) => {
     try {
@@ -422,11 +588,11 @@ export const updateExperiment = tool({
 })
 
 export const createDataset = tool({
-  description: "Create a new dataset entry in the lab. The projectId is automatically injected from the current session context.",
+  description: "Create a new dataset entry in the lab. projectId is auto-injected from session context.",
   inputSchema: z.object({
     name: z.string(), description: z.string().optional(), datasetType: z.enum(["CODE", "TEXT", "INSTRUCTION", "QA", "MIXED"]),
     numSamples: z.number().optional(), format: z.string().optional(), sourceUrl: z.string().optional(), tags: z.array(z.string()).optional(), license: z.string().optional(),
-    projectId: z.string().optional().describe("Auto-injected from session context."),
+    projectId: z.string().optional(),
   }),
   execute: async ({ name, description, datasetType, numSamples, format, sourceUrl, tags, license, projectId }) => {
     try {
@@ -448,7 +614,7 @@ export const updateDataset = tool({
 })
 
 export const analyzeDatasetIntelligence = tool({
-  description: "Analyze a dataset and produce intelligence: quality assessment, sample statistics, documentation, and experiment suggestions.",
+  description: "Analyze a dataset: quality, statistics, documentation, experiment suggestions.",
   inputSchema: z.object({ datasetId: z.string() }),
   execute: async ({ datasetId }) => {
     try {
@@ -469,8 +635,8 @@ export const benchmarkModel = tool({
       let docResult = null
       if (generateReport) {
         const slug = `benchmark-${model.name.toLowerCase().replace(/\s+/g, "-")}-${model.version}-${Date.now()}`
-        const reportContent = `# Benchmark Report: ${model.name} v${model.version}\n\n## Benchmark Results\n\n| Metric | Score |\n|--------|-------|\n| BLEU | ${bleuScore ?? "N/A"} |\n| pass@1 | ${pass1Score ?? "N/A"} |\n| HumanEval | ${humanEval ?? "N/A"} |\n| MMLU | ${mmluScore ?? "N/A"} |\n\n## Notes\n${benchmarkNotes || "None."}\n\nGenerated: ${new Date().toISOString()}`
-        const doc = await prisma.documentationPage.create({ data: { title: `Benchmark: ${model.name} v${model.version}`, slug, section: "Benchmarks", content: reportContent, tags: ["benchmark", "model", model.name, model.version], order: 99, progress: "COMPLETED" } })
+        const content = `# Benchmark Report: ${model.name} v${model.version}\n\n| Metric | Score |\n|--------|-------|\n| BLEU | ${bleuScore ?? "N/A"} |\n| pass@1 | ${pass1Score ?? "N/A"} |\n| HumanEval | ${humanEval ?? "N/A"} |\n| MMLU | ${mmluScore ?? "N/A"} |\n\n## Notes\n${benchmarkNotes || "None."}\n\nGenerated: ${new Date().toISOString()}`
+        const doc = await prisma.documentationPage.create({ data: { title: `Benchmark: ${model.name} v${model.version}`, slug, section: "Benchmarks", content, tags: ["benchmark", "model"], order: 99, progress: "COMPLETED" } })
         docResult = { docId: doc.id, docSlug: doc.slug }
       }
       return { success: true, modelId: model.id, name: model.name, version: model.version, metrics: { bleuScore, pass1Score, humanEval, mmluScore }, report: docResult }
@@ -490,18 +656,18 @@ export const getModelLeaderboard = tool({
 })
 
 export const crawlWeb = tool({
-  description: "Fetch and read a specific known public web page. For general research queries, use the `research` tool instead.",
+  description: "Fetch a specific known public URL. For broad research queries, use the `research` tool instead.",
   inputSchema: z.object({ url: z.string().url(), reason: z.string().optional() }),
   execute: async ({ url }) => {
     if (!isSafeUrl(url)) return { error: "Only HTTPS URLs to public hosts are allowed" }
     try {
       const res = await fetch(url, { headers: { "User-Agent": "Prausdit-LabBot/2.0", Accept: "text/html,text/plain,application/json,text/markdown" }, signal: AbortSignal.timeout(10000) })
       if (!res.ok) return { error: `HTTP ${res.status}`, url }
-      const contentType = res.headers.get("content-type") || ""
+      const ct = res.headers.get("content-type") || ""
       const raw = await res.text()
       let text: string
-      if (contentType.includes("application/json")) { try { text = JSON.stringify(JSON.parse(raw), null, 2).slice(0, 8000) } catch { text = raw.slice(0, 8000) } }
-      else if (contentType.includes("text/plain") || contentType.includes("text/markdown")) { text = raw.slice(0, 8000) }
+      if (ct.includes("application/json")) { try { text = JSON.stringify(JSON.parse(raw), null, 2).slice(0, 8000) } catch { text = raw.slice(0, 8000) } }
+      else if (ct.includes("text/plain") || ct.includes("text/markdown")) { text = raw.slice(0, 8000) }
       else { text = stripHtml(raw) }
       const titleMatch = raw.match(/<title[^>]*>([^<]+)<\/title>/i)
       return { url, title: titleMatch ? titleMatch[1].trim() : url, content: text, length: text.length }
@@ -510,11 +676,11 @@ export const crawlWeb = tool({
 })
 
 export const runResearchAutopilot = tool({
-  description: "Execute a full research autopilot workflow for a given topic. Results scoped to current project.",
+  description: "Execute a full research autopilot workflow. Results scoped to current project.",
   inputSchema: z.object({
     topic: z.string(),
     scope: z.array(z.enum(["roadmap", "experiments", "datasets", "documentation", "notes"])).optional(),
-    projectId: z.string().optional().describe("Auto-injected from session context."),
+    projectId: z.string().optional(),
   }),
   execute: async ({ topic, scope, projectId }) => {
     const targetScopes = scope || ["roadmap", "experiments", "datasets", "documentation", "notes"]
@@ -535,7 +701,7 @@ export const runResearchAutopilot = tool({
           roadmapSteps: roadmapSteps.map((r: { id: string; title: string; status: string; phase: number }) => ({ id: r.id, title: r.title, status: r.status, phase: r.phase })),
         },
         gaps: { needsExperiments: experiments.length === 0, needsDatasets: datasets.length === 0, needsDocumentation: docs.length === 0, needsRoadmapEntry: roadmapSteps.length === 0 },
-        recommendation: `Focus on: ${[experiments.length === 0 ? "creating experiments" : "building on existing experiments", datasets.length === 0 ? "sourcing datasets" : "leveraging existing datasets", docs.length === 0 ? "writing documentation" : "updating documentation"].join(", ")}.`,
+        recommendation: `Focus on: ${[experiments.length === 0 ? "creating experiments" : "building on existing", datasets.length === 0 ? "sourcing datasets" : "leveraging existing", docs.length === 0 ? "writing documentation" : "updating docs"].join(", ")}.`,
         scopedToProject: projectId || "all",
       }
     } catch (err) { return { error: String(err), topic } }
@@ -543,13 +709,13 @@ export const runResearchAutopilot = tool({
 })
 
 export const researchTool = tool({
-  description: "Perform deep web research on any topic. Searches multiple providers with automatic fallback, then deep-crawls top results. ALWAYS use this for external research.",
+  description: "Perform deep web research. Searches Tavily → Brave → SerpAPI (keys from Settings DB), crawls top results via Firecrawl → Crawl4AI → basic fetch. ALWAYS use for external research.",
   inputSchema: z.object({
     query: z.string(),
     mode: z.enum(["deep", "quick"]).optional().default("deep"),
     maxCrawl: z.number().int().min(1).max(4).optional().default(2),
     saveAsNote: z.boolean().optional().default(false),
-    projectId: z.string().optional().describe("Auto-injected from session context."),
+    projectId: z.string().optional(),
   }),
   execute: async ({ query, mode, maxCrawl, saveAsNote, projectId }) => {
     try {
@@ -565,27 +731,27 @@ export const researchTool = tool({
 })
 
 export const generatePlan = tool({
-  description: "Generate a structured execution plan for user approval BEFORE doing any work. ALWAYS use for complex multi-step tasks. DO NOT execute until approved.",
+  description: "Generate a structured execution plan for user approval BEFORE doing any work. ALWAYS use for complex multi-step tasks.",
   inputSchema: z.object({
     title: z.string(), overview: z.string(),
     sections: z.array(z.object({ heading: z.string(), subheading: z.string().optional(), description: z.string(), steps: z.array(z.string()), toolsRequired: z.array(z.string()).optional() })).min(2),
     imagePlan: z.object({ needed: z.boolean(), description: z.string().optional() }).optional(),
     sources: z.array(z.object({ title: z.string(), url: z.string() })).optional(),
     estimatedSteps: z.number().int().optional(),
-    projectId: z.string().optional().describe("Auto-injected from session context."),
+    projectId: z.string().optional(),
     requestedBy: z.string().optional(),
   }),
   execute: async ({ title, overview, sections, imagePlan, sources, estimatedSteps, projectId, requestedBy }) => {
     try {
       const planContent = buildPlanMarkdown(title, overview, sections, sources, imagePlan)
       const note = await prisma.note.create({ data: { title: `PLAN: ${title}`, content: planContent, tags: ["agent-plan", "pending-approval"], pinned: true, projectId: projectId ?? null } })
-      return { success: true, planId: note.id, title, overview, sections: sections.map(s => ({ heading: s.heading, stepsCount: s.steps.length, toolsRequired: s.toolsRequired })), imagePlan, sources, estimatedSteps, status: "PENDING_APPROVAL", requestedBy, message: `Plan ready (Note ID: ${note.id}). Review above and reply **approve** to execute.` }
+      return { success: true, planId: note.id, title, overview, sections: sections.map(s => ({ heading: s.heading, stepsCount: s.steps.length, toolsRequired: s.toolsRequired })), imagePlan, sources, estimatedSteps, status: "PENDING_APPROVAL", requestedBy, message: `Plan ready (Note ID: ${note.id}). Reply **approve** to execute.` }
     } catch (err) { return { success: false, error: String(err) } }
   },
 })
 
 export const updatePlan = tool({
-  description: "Refine or update an existing plan based on user feedback.",
+  description: "Refine an existing plan based on user feedback.",
   inputSchema: z.object({ planNoteId: z.string(), changes: z.string(), newTitle: z.string().optional(), newOverview: z.string().optional(), newSections: z.array(z.object({ heading: z.string(), subheading: z.string().optional(), description: z.string(), steps: z.array(z.string()), toolsRequired: z.array(z.string()).optional() })).optional(), newSources: z.array(z.object({ title: z.string(), url: z.string() })).optional() }),
   execute: async ({ planNoteId, changes, newTitle, newOverview, newSections, newSources }) => {
     try {
@@ -600,30 +766,31 @@ export const updatePlan = tool({
 })
 
 export const approvePlan = tool({
-  description: "Record that a plan has been approved by the user. Call ONLY when user explicitly approves.",
+  description: "Record that a plan has been approved. Call ONLY when user explicitly approves.",
   inputSchema: z.object({ planNoteId: z.string(), approvedBy: z.string().optional() }),
   execute: async ({ planNoteId, approvedBy }) => {
     try {
       const note = await prisma.note.findUnique({ where: { id: planNoteId } })
       if (!note) return { success: false, error: `Plan note ${planNoteId} not found` }
       await prisma.note.update({ where: { id: planNoteId }, data: { title: note.title.replace("PLAN:", "APPROVED:").replace("(REVISED):", "(APPROVED):"), content: note.content + `\n\n---\nAPPROVED by ${approvedBy || "user"} at ${new Date().toISOString()}`, tags: ["agent-plan", "approved"], pinned: false } })
-      return { success: true, planNoteId, status: "APPROVED", message: "Plan approved. Proceeding with execution...", approvedBy: approvedBy || "user", approvedAt: new Date().toISOString() }
+      return { success: true, planNoteId, status: "APPROVED", message: "Plan approved. Proceeding...", approvedBy: approvedBy || "user", approvedAt: new Date().toISOString() }
     } catch (err) { return { success: false, error: String(err) } }
   },
 })
 
 export const finalizeExecution = tool({
-  description: "Record the completion of a plan execution. Call AFTER all plan steps have been executed.",
+  description: "Record completion of a plan execution. Uploads images to Cloudinary (keys from Settings DB) if configured.",
   inputSchema: z.object({
     planNoteId: z.string().optional(), executionTitle: z.string(), summary: z.string(),
     createdEntities: z.array(z.object({ type: z.enum(["document", "note", "experiment", "dataset", "roadmap_step", "model"]), id: z.string(), title: z.string() })).optional(),
     imageUrls: z.array(z.string()).optional(),
-    projectId: z.string().optional().describe("Auto-injected from session context."),
+    projectId: z.string().optional(),
   }),
   execute: async ({ planNoteId, executionTitle, summary, createdEntities, imageUrls, projectId }) => {
     try {
       const cloudinaryResults: Array<{ original: string; cloudinaryUrl: string }> = []
-      if (imageUrls && imageUrls.length > 0 && isCloudinaryConfigured()) {
+      const cloudinaryReady = await isCloudinaryConfigured()
+      if (imageUrls && imageUrls.length > 0 && cloudinaryReady) {
         for (const url of imageUrls.slice(0, 4)) {
           const result = await downloadAndUpload(url, { folder: "prausdit-lab/agent-generated", tags: ["agent-generated"] })
           if (result) cloudinaryResults.push({ original: url, cloudinaryUrl: result.url })
@@ -634,29 +801,30 @@ export const finalizeExecution = tool({
       if (cloudinaryResults.length) { reportLines.push("", "## Uploaded Images"); cloudinaryResults.forEach(r => { reportLines.push(`- ![](${r.cloudinaryUrl})`); reportLines.push(`  CDN: ${r.cloudinaryUrl}`) }) }
       const reportNote = await prisma.note.create({ data: { title: `DONE: ${executionTitle}`, content: reportLines.filter(Boolean).join("\n"), tags: ["execution-report", "completed"], pinned: false, projectId: projectId ?? null } })
       if (planNoteId) { try { await prisma.note.update({ where: { id: planNoteId }, data: { tags: ["agent-plan", "executed"], pinned: false } }) } catch { /* non-fatal */ } }
-      return { success: true, reportNoteId: reportNote.id, executionTitle, createdEntities: createdEntities || [], cloudinaryUploads: cloudinaryResults, message: `Execution complete. Report saved (Note ID: ${reportNote.id}).` }
+      return { success: true, reportNoteId: reportNote.id, executionTitle, createdEntities: createdEntities || [], cloudinaryUploads: cloudinaryResults, message: `Done. Report saved (Note ID: ${reportNote.id}).` }
     } catch (err) { return { success: false, error: String(err) } }
   },
 })
 
 export const uploadImage = tool({
-  description: "Upload an image from a URL to Cloudinary CDN and return the permanent CDN URL.",
+  description: "Upload an image URL to Cloudinary CDN (keys read from Settings DB). Returns permanent CDN URL.",
   inputSchema: z.object({ imageUrl: z.string().url(), filename: z.string().optional(), folder: z.string().optional(), tags: z.array(z.string()).optional() }),
   execute: async ({ imageUrl, filename, folder, tags }) => {
     if (!imageUrl.startsWith("https://")) return { success: false, error: "Only HTTPS URLs allowed" }
-    if (!isCloudinaryConfigured()) return { success: false, error: "Cloudinary not configured.", fallback: imageUrl }
+    const cloudinaryReady = await isCloudinaryConfigured()
+    if (!cloudinaryReady) return { success: false, error: "Cloudinary not configured. Add Cloudinary keys in Settings → Manage API.", fallback: imageUrl }
     try {
       const result = await downloadAndUpload(imageUrl, { filename, folder, tags })
       if (!result) return { success: false, error: "Upload failed", fallback: imageUrl }
-      return { success: true, cloudinaryUrl: result.url, publicId: result.publicId, width: result.width, height: result.height, bytes: result.bytes, message: `Image uploaded: ${result.url}` }
+      return { success: true, cloudinaryUrl: result.url, publicId: result.publicId, width: result.width, height: result.height, bytes: result.bytes, message: `Uploaded: ${result.url}` }
     } catch (err) { return { success: false, error: String(err), fallback: imageUrl } }
   },
 })
 
-// ── NEW: Project Management Tools ───────────────────────────────────────────────
+// ── Project Management Tools ──────────────────────────────────────────────────
 
 export const listProjects = tool({
-  description: "List all available projects in the system. Use when user asks 'list all projects', 'what projects exist', or wants to choose a project.",
+  description: "List all available projects. Use when user asks 'list all projects', 'what projects exist', or wants to choose a project.",
   inputSchema: z.object({ includeStats: z.boolean().optional().default(true) }),
   execute: async ({ includeStats = true }) => {
     try {
@@ -682,7 +850,7 @@ export const listProjects = tool({
 })
 
 export const switchProject = tool({
-  description: "Switch the active project context by name or ID. Use when user says 'switch to project X', 'select project X', 'use project X'. After switching, ALL subsequent operations will use the new project automatically.",
+  description: "Switch the active project context by name or ID. After switching, ALL subsequent operations use the new project automatically.",
   inputSchema: z.object({ projectNameOrId: z.string().describe("Project name (partial match ok) or exact project ID") }),
   execute: async ({ projectNameOrId }) => {
     try {
@@ -692,22 +860,14 @@ export const switchProject = tool({
       }
       if (!project) {
         const available = await prisma.project.findMany({ select: { id: true, name: true, type: true }, take: 10, orderBy: { updatedAt: "desc" } })
-        return { success: false, error: `No project found matching "${projectNameOrId}".`, availableProjects: available, message: `No project found matching "${projectNameOrId}". Available: ${available.map(p => `${p.name} (${p.id})`).join(", ")}` }
+        return { success: false, error: `No project found matching "${projectNameOrId}".`, availableProjects: available, message: `Available: ${available.map(p => `${p.name} (${p.id})`).join(", ")}` }
       }
-      return {
-        success: true,
-        switchedTo: { id: project.id, name: project.name, type: project.type, description: project.description || "", stats: project._count },
-        newProjectId: project.id,
-        message: `Switched to project **${project.name}** (ID: \`${project.id}\`). All subsequent operations will use this project.`,
-        __action: "SWITCH_PROJECT",
-        __projectId: project.id,
-        __projectName: project.name,
-      }
+      return { success: true, switchedTo: { id: project.id, name: project.name, type: project.type, description: project.description || "", stats: project._count }, newProjectId: project.id, message: `Switched to **${project.name}** (ID: \`${project.id}\`). All operations now use this project.`, __action: "SWITCH_PROJECT", __projectId: project.id, __projectName: project.name }
     } catch (err) { return { success: false, error: String(err) } }
   },
 })
 
-// ── Tool Registry ────────────────────────────────────────────────────────────────
+// ── Tool Registry ─────────────────────────────────────────────────────────────
 
 export const agentTools = {
   search_internal_docs:   searchInternalDocs,
@@ -741,9 +901,9 @@ export const agentTools = {
 
 export type AgentToolName = keyof typeof agentTools
 
-// ── Project-Scoped Tool Factory ─────────────────────────────────────────────────
-// Returns agentTools with projectId pre-filled for every create/search operation.
-// The agent NEVER needs to track or pass projectId — the session provides it.
+// ── Project-Scoped Tool Factory ───────────────────────────────────────────────
+// Returns agentTools with projectId pre-filled for every create/search tool.
+// The agent never needs to track or pass projectId — it comes from the session.
 
 const PROJECT_SCOPED_TOOLS = new Set([
   "search_internal_docs", "get_knowledge_graph",

@@ -14,7 +14,7 @@ import { createOpenAI } from "@ai-sdk/openai"
 import { prisma } from "./prisma"
 import { agentTools, buildProjectScopedTools } from "./agent-tools"
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Types ─────────────────
 
 export interface AgentMessage {
   role: "user" | "assistant"
@@ -29,6 +29,13 @@ export interface AgentOptions {
   systemContext?: string
   /** The currently selected project ID from the user's session */
   currentProjectId?: string | null
+  /**
+   * Fix 3 — Session memory summary.
+   * A compact digest of entities created/found in this session,
+   * derived from agentSteps on the client and injected into the system prompt.
+   * Gives the agent persistent awareness of what it has already done.
+   */
+  sessionMemory?: string | null
 }
 
 // ─── Active Agent File Loader ─────────────────────────────────────────────────
@@ -181,7 +188,8 @@ When a plan is generated, present it clearly and ask for approval before proceed
 
 async function buildSystemPrompt(
   currentProjectId?: string | null,
-  extraContext?: string
+  extraContext?: string,
+  sessionMemory?: string | null
 ): Promise<string> {
   const files = await loadActiveAgentFiles()
   const parts: string[] = []
@@ -248,6 +256,20 @@ If the user wants to switch projects, call the \`switch_project\` tool.`)
   // 5. Workflow-specific context
   if (extraContext) {
     parts.push("---\n## Active Workflow Context\n\n" + extraContext)
+  }
+
+  // 6. Fix 3 — Session memory: compact digest of what was created/found
+  //    in this session. Derived from agentSteps on client, prevents the
+  //    agent from forgetting entities it already created earlier in the chat.
+  if (sessionMemory) {
+    parts.push(`---
+## Session Memory (This Conversation)
+
+The following entities were created or found earlier in this session.
+Reference these IDs when the user asks about things you already created.
+Do NOT recreate entities that already exist here.
+
+${sessionMemory}`)
   }
 
   return parts.join("\n\n")
@@ -336,7 +358,7 @@ function detectWorkflowIntent(message: string): string {
 // ─── Main Agent Runner ────────────────────────────────────────────────────────
 
 export function runAgent(options: AgentOptions): ReadableStream<Uint8Array> {
-  const { message, history, provider, model, systemContext, currentProjectId } = options
+  const { message, history, provider, model, systemContext, currentProjectId, sessionMemory } = options
   const encoder = new TextEncoder()
 
   function evt(payload: object): Uint8Array {
@@ -344,7 +366,7 @@ export function runAgent(options: AgentOptions): ReadableStream<Uint8Array> {
   }
 
   const messages: Array<{ role: "user" | "assistant"; content: string }> = [
-    ...history.slice(-14),
+    ...history.slice(-20),  // Fix 1: matches client history window
     { role: "user", content: message },
   ]
 
@@ -355,7 +377,7 @@ export function runAgent(options: AgentOptions): ReadableStream<Uint8Array> {
         controller.enqueue(evt({ type: "status", text: initialStatus, step: 0 }))
 
         // Build system prompt — injects current project context
-        const systemPrompt = await buildSystemPrompt(currentProjectId, systemContext)
+        const systemPrompt = await buildSystemPrompt(currentProjectId, systemContext, sessionMemory)
 
         // Use project-scoped tools so projectId is auto-injected
         const tools = buildProjectScopedTools(currentProjectId)
