@@ -9,12 +9,26 @@ import {
   Search, Wrench, CheckCircle2, BrainCircuit, Plus,
   MessageSquare, Lock, Users, MoreHorizontal, Pencil, Eye,
   EyeOff, ArrowLeft, Copy, RotateCcw, ChevronRight,
-  FolderOpen, Hash, Link, ExternalLink, BookOpen, Layers,
+  FolderOpen, Hash, ExternalLink, Layers,
   FlaskConical,
 } from "lucide-react"
 import { DocContent } from "@/components/docs/doc-content"
 import { useCurrentUser } from "@/components/auth/auth-guard"
 import { useProject, Project } from "@/components/project/project-context"
+import { ModelBadge } from "@/components/chatbot/model-badge"
+import type {
+  AgentStep,
+  AgentEvent,
+  Message,
+  ChatModel,
+  ChatSession,
+  RoutingMode,
+} from "@/types/chat"
+import {
+  GEMINI_MODELS,
+  AUTO_ROUTING_MODELS,
+  SLASH_COMMANDS,
+} from "@/types/chat"
 
 // ─── Task Strip ───────────────────────────────────────────────────────────────
 
@@ -74,20 +88,7 @@ function TaskStrip({ steps, isStreaming, currentStatus }: {
   )
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type AgentEventType = "text" | "status" | "tool_call" | "tool_result" | "done" | "error" | "project_switch"
-
-interface AgentEvent {
-  type: AgentEventType
-  text?: string
-  tool?: string
-  args?: Record<string, unknown>
-  result?: unknown
-  step?: number
-  projectId?: string
-  projectName?: string
-}
+// ─── (AgentEventType and AgentEvent are imported from @/types/chat) ──────────
 
 
 // ── Tool Icon Map ─────────────────────────────────────────────────────────────
@@ -1283,7 +1284,7 @@ ${toolLines.join("\n")}
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] flex overflow-hidden -m-4 md:-m-6">
+    <div className="h-full flex overflow-hidden">
       {/* Mobile overlay */}
       {mobileSidebarOpen && (
         <div className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={() => setMobileSidebarOpen(false)} />

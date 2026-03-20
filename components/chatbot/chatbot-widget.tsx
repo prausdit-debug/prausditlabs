@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import {
@@ -11,8 +11,11 @@ import {
   EyeOff, Shield, Copy, RotateCcw, ChevronRight,
 } from "lucide-react"
 import { DocContent } from "@/components/docs/doc-content"
+import { ModelBadge } from "@/components/chatbot/model-badge"
+import type { AgentStep, AgentEvent, Message, ChatModel, ChatSession } from "@/types/chat"
+import { GEMINI_MODELS, SLASH_COMMANDS } from "@/types/chat"
 
-// Task strip component for showing agent tasks/plans
+
 function TaskStrip({ steps, isStreaming, currentStatus }: { 
   steps: AgentStep[]
   isStreaming: boolean
@@ -64,7 +67,7 @@ function TaskStrip({ steps, isStreaming, currentStatus }: {
       
       {expanded && activeSteps.length > 0 && (
         <div className="mt-1 rounded-lg border border-border bg-card/50 overflow-hidden max-h-40 overflow-y-auto">
-          {activeSteps.map((step, idx) => {
+          {activeSteps.map((step) => {
             const Icon = step.tool ? (TOOL_ICONS[step.tool] || Wrench) : BrainCircuit
             const isComplete = step.type === "tool_result"
             return (
@@ -92,126 +95,20 @@ function TaskStrip({ steps, isStreaming, currentStatus }: {
   )
 }
 
-type AgentEventType = "text" | "status" | "tool_call" | "tool_result" | "done" | "error"
-
-interface AgentEvent {
-  type: AgentEventType
-  text?: string
-  tool?: string
-  args?: Record<string, unknown>
-  result?: unknown
-  step?: number
-}
-
-interface AgentStep {
-  id: string
-  type: "status" | "tool_call" | "tool_result"
-  text: string
-  tool?: string
-  args?: Record<string, unknown>
-  result?: unknown
-  step?: number
-}
-
-interface Message {
-  id: string
-  role: "user" | "assistant"
-  content: string
-  loading?: boolean
-  agentSteps?: AgentStep[]
-  stepsExpanded?: boolean
-  reasoning?: string
-  reasoningExpanded?: boolean
-  modelId?: string
-}
-
-interface ChatModel {
-  id: string
-  name: string
-  provider: "gemini" | "openrouter"
-  shortName: string
-}
-
-interface ChatSession {
-  id: string
-  title: string
-  creatorId: string
-  creatorName?: string
-  visibility: "team" | "private"
-  createdAt: string
-  updatedAt: string
-  _count?: { messages: number }
-}
-
-const SLASH_COMMANDS = [
-  { cmd: "/document", desc: "Create a documentation page" },
-  { cmd: "/roadmap",  desc: "Add a roadmap step" },
-  { cmd: "/experiment", desc: "Design an experiment" },
-  { cmd: "/dataset",  desc: "Register a dataset" },
-  { cmd: "/note",     desc: "Save a research note" },
-]
-
-// Model categories
-type ModelCategory = "chat" | "image" | "multimodal"
-type AutoMode = "auto" | "auto-free" | "auto-paid" | "manual"
-
-interface ExtendedChatModel extends ChatModel {
-  category: ModelCategory
-  isFree?: boolean
-}
-
-// Gemini models organized by category
-const GEMINI_CHAT_MODELS: ExtendedChatModel[] = [
-  { id: "auto", name: "Auto (Best Model)", provider: "gemini", shortName: "Auto", category: "chat" },
-  { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview", provider: "gemini", shortName: "3.1 Pro", category: "chat" },
-  { id: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview", provider: "gemini", shortName: "3 Flash", category: "chat" },
-  { id: "gemini-3.1-flash-lite-preview", name: "Gemini 3.1 Flash Lite", provider: "gemini", shortName: "3.1 Lite", category: "chat" },
-  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", provider: "gemini", shortName: "2.5 Pro", category: "chat" },
-  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "gemini", shortName: "2.5 Flash", category: "chat" },
-  { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", provider: "gemini", shortName: "2.5 Lite", category: "chat" },
-  { id: "gemini-2.5-flash-live", name: "Gemini 2.5 Flash Live", provider: "gemini", shortName: "2.5 Live", category: "chat" },
-]
-
-const GEMINI_IMAGE_MODELS: ExtendedChatModel[] = [
-  { id: "auto-image", name: "Auto (Best Image)", provider: "gemini", shortName: "Auto Img", category: "image" },
-  { id: "gemini-3.1-flash-image", name: "Gemini 3.1 Flash Image", provider: "gemini", shortName: "3.1 Img", category: "image" },
-  { id: "imagen-4", name: "Imagen 4", provider: "gemini", shortName: "Imagen 4", category: "image" },
-]
-
-const GEMINI_MULTIMODAL_MODELS: ExtendedChatModel[] = [
-  { id: "auto-multimodal", name: "Auto (Best Multimodal)", provider: "gemini", shortName: "Auto MM", category: "multimodal" },
-  { id: "gemini-embedding-2-preview", name: "Gemini Embedding 2", provider: "gemini", shortName: "Embed 2", category: "multimodal" },
-  { id: "veo-3.1-preview", name: "Veo 3.1 Preview", provider: "gemini", shortName: "Veo 3.1", category: "multimodal" },
-]
-
-const ALL_GEMINI_MODELS: ExtendedChatModel[] = [
-  ...GEMINI_CHAT_MODELS,
-  ...GEMINI_IMAGE_MODELS,
-  ...GEMINI_MULTIMODAL_MODELS,
-]
-
-// Legacy compatibility
-const GEMINI_MODELS: ChatModel[] = GEMINI_CHAT_MODELS.filter(m => !m.id.startsWith("auto"))
-
+// ─── Tool icon map ──────────────────────────────────────────────────────────
 const TOOL_ICONS: Record<string, React.ElementType> = {
   search_internal_docs: Search,
-  read_document: FileText,
-  create_document: FileText,
-  update_document: FileText,
-  create_note: FileText,
-  create_roadmap_step: Zap,
-  update_roadmap_step: Zap,
-  create_experiment: Code,
-  update_experiment: Code,
-  create_dataset: Cpu,
-  update_dataset: Cpu,
-  crawl_web: Globe,
-}
-
-function ModelBadge({ provider }: { provider: "gemini" | "openrouter" }) {
-  return provider === "gemini"
-    ? <Cpu className="w-3 h-3 text-amber-400" />
-    : <Globe className="w-3 h-3 text-blue-400" />
+  read_document:        FileText,
+  create_document:      FileText,
+  update_document:      FileText,
+  create_note:          FileText,
+  create_roadmap_step:  Zap,
+  update_roadmap_step:  Zap,
+  create_experiment:    Code,
+  update_experiment:    Code,
+  create_dataset:       Cpu,
+  update_dataset:       Cpu,
+  crawl_web:            Globe,
 }
 
 function AgentStepItem({ step }: { step: AgentStep }) {
@@ -779,7 +676,6 @@ export function ChatbotWidget() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [showCommands, setShowCommands] = useState(false)
   const [showModelPicker, setShowModelPicker] = useState(false)
-  const [autoMode, setAutoMode] = useState<AutoMode>("auto")
   const [availableModels, setAvailableModels] = useState<ChatModel[]>(GEMINI_MODELS)
   const [selectedModel, setSelectedModel] = useState<ChatModel>(GEMINI_MODELS[0])
   const [currentStatus, setCurrentStatus] = useState<string | null>(null)

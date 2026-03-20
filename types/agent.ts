@@ -6,7 +6,6 @@
  * (step viewers, history panels, etc.) to import it without
  * redefining it.
  */
-
 export interface AgentStep {
   id:     string
   type:   "tool_call" | "tool_result" | "status" | "text"
