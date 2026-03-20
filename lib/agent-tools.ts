@@ -631,7 +631,7 @@ async function generateWithGeminiDirect(
 
     if (modelKey === "imagen-4") {
       // Imagen 4: uses generateImages API
-      const result = await (ai.models as Record<string, (opts: Record<string, unknown>) => Promise<Record<string, unknown>>>).generateImages({
+      const result = await (ai.models as unknown as Record<string, (opts: Record<string, unknown>) => Promise<Record<string, unknown>>>).generateImages({
         model: cfg.model,
         prompt,
         config: { numberOfImages: 1, outputMimeType: "image/png" },
