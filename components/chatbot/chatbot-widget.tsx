@@ -10,7 +10,8 @@ import {
   MessageSquare, Lock, Users, MoreHorizontal, Pencil, Eye,
   EyeOff, Shield, Copy, RotateCcw, ChevronRight,
 } from "lucide-react"
-import { DocContent } from "@/components/docs/doc-content"
+import { MarkdownRenderer } from "@/components/chat/markdown-renderer"
+import { SourcesList } from "@/components/chat/sources-list"
 import { ModelBadge } from "@/components/chatbot/model-badge"
 import type { AgentStep, AgentEvent, Message, ChatModel, ChatSession } from "@/types/chat"
 import { GEMINI_MODELS, SLASH_COMMANDS } from "@/types/chat"
@@ -502,10 +503,15 @@ function MessagesPane({
                   
                   {msg.content && (
                     msg.role === "assistant"
-                      ? <div className="prose-dark text-[13px]"><DocContent content={msg.content} /></div>
+                      ? <MarkdownRenderer content={msg.content} streaming={msg.loading} />
                       : <span className="leading-relaxed">{msg.content}</span>
                   )}
                   
+                  {/* Sources section (web search citations) */}
+                  {msg.role === "assistant" && !msg.loading && !!msg.agentSteps?.length && (
+                    <SourcesList steps={msg.agentSteps} />
+                  )}
+
                   {/* Agent Steps Panel */}
                   {msg.role === "assistant" && !!msg.agentSteps?.length && !msg.loading && (
                     <AgentStepsPanel steps={msg.agentSteps} expanded={msg.stepsExpanded ?? false} onToggle={() => toggleSteps(msg.id)} />

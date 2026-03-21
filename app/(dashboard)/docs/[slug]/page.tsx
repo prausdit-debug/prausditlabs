@@ -6,6 +6,7 @@ import { ArrowLeft, Edit3, Save, X, Loader2, Tag, CheckCircle2, Clock, Circle, T
 import Link from "next/link"
 import { RichTextEditor } from "@/components/editor/rich-text-editor"
 import { DocContent } from "@/components/docs/doc-content"
+import { isHtmlContent } from "@/lib/html-to-markdown"
 import { ResourceMetadata } from "@/components/shared/resource-metadata"
 import { AIEditDialog } from "@/components/editor/ai-edit-dialog"
 import { useCurrentUser } from "@/components/auth/auth-guard"
@@ -280,7 +281,16 @@ export default function DocPage() {
             minHeight="500px"
           />
         ) : (
+          /* DocContent auto-detects HTML (TipTap) vs Markdown (AI-generated) */
           <DocContent content={doc.content} />
+        )}
+        {/* Format hint for editors */}
+        {editing && (
+          <p className="mt-2 text-[11px] text-muted-foreground/50">
+            {isHtmlContent(editContent)
+              ? "Rich text format — use toolbar above to format"
+              : "Markdown format — use the ⟨ Rich Text ⟩ toggle in the toolbar to switch"}
+          </p>
         )}
       </div>
 

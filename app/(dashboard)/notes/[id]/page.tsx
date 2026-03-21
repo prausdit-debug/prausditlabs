@@ -8,6 +8,7 @@ import { ResourceMetadata } from "@/components/shared/resource-metadata"
 import { AIEditDialog } from "@/components/editor/ai-edit-dialog"
 import { useCurrentUser } from "@/components/auth/auth-guard"
 import { cn } from "@/lib/utils"
+import { MarkdownRenderer } from "@/components/chat/markdown-renderer"
 
 interface Note {
   id: string
@@ -242,18 +243,33 @@ export default function NoteDetailPage() {
       />
 
       {/* Content */}
-      <div className="rounded-xl border border-border bg-card p-5 min-h-[200px]">
+      <div className="rounded-xl border border-border bg-card overflow-hidden min-h-[200px]">
         {editing ? (
-          <textarea
-            value={editForm.content}
-            onChange={e => setEditForm(p => ({ ...p, content: e.target.value }))}
-            rows={12}
-            className="w-full px-3 py-2 rounded-lg border border-border bg-input text-foreground text-[14px] outline-none focus:border-amber-500/50 resize-y"
-            placeholder="Write your note content..."
-          />
+          /* Markdown textarea — auto-grows, monospace for clarity */
+          <div className="relative">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted/30">
+              <span className="text-[10px] font-mono text-amber-400/70 select-none">.md</span>
+              <span className="text-[10px] text-muted-foreground/50">
+                Markdown supported — **bold**, ## heading, - list, `code`
+              </span>
+            </div>
+            <textarea
+              value={editForm.content}
+              onChange={e => setEditForm(p => ({ ...p, content: e.target.value }))}
+              rows={14}
+              className="w-full px-4 py-3 bg-transparent text-foreground text-[13px] font-mono outline-none focus:ring-0 resize-y border-0 caret-amber-400 placeholder:text-muted-foreground/40 leading-relaxed"
+              placeholder="Write your note in Markdown... (**bold**, ## heading, - list, ```code```)"
+              spellCheck={false}
+            />
+          </div>
         ) : (
-          <div className="prose prose-sm prose-invert max-w-none whitespace-pre-wrap text-[14px] text-foreground/90">
-            {note.content || "No content."}
+          /* MarkdownRenderer replaces the old whitespace-pre-wrap div.
+             Notes created by the AI agent output Markdown — this renders them correctly. */
+          <div className="p-5">
+            {note.content
+              ? <MarkdownRenderer content={note.content} />
+              : <p className="text-[13px] text-muted-foreground/50 italic">No content.</p>
+            }
           </div>
         )}
       </div>

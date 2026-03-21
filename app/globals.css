@@ -532,3 +532,232 @@
 .cl-avatarBox {
   border: 2px solid hsl(var(--border)) !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RENDERING SYSTEM UPGRADE — append these rules to the END of globals.css
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── doc-html-content ──────────────────────────────────────────────────────
+   Styles for TipTap-produced HTML rendered by DocContent.
+   Visual language intentionally matches MarkdownRenderer for consistency.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.doc-html-content {
+  color: hsl(var(--foreground) / 0.88);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+/* Headings */
+.doc-html-content h1,
+.doc-html-content h2,
+.doc-html-content h3,
+.doc-html-content h4,
+.doc-html-content h5,
+.doc-html-content h6 {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+.doc-html-content h1 { font-size: 1.5rem;   border-bottom: 1px solid hsl(var(--border)); padding-bottom: 0.4em; }
+.doc-html-content h2 { font-size: 1.25rem;  }
+.doc-html-content h3 { font-size: 1.05rem;  }
+.doc-html-content h4 { font-size: 0.95rem;  }
+.doc-html-content h5 { font-size: 0.875rem; color: hsl(var(--muted-foreground)); }
+.doc-html-content h6 { font-size: 0.8rem;   color: hsl(var(--muted-foreground)); text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Paragraph */
+.doc-html-content p {
+  margin: 0.75rem 0;
+  line-height: 1.75;
+}
+.doc-html-content p:last-child { margin-bottom: 0; }
+
+/* Inline code */
+.doc-html-content code {
+  font-family: var(--font-space-mono);
+  background: hsl(38 92% 50% / 0.10);
+  color: hsl(38 92% 55%);
+  border: 1px solid hsl(38 92% 50% / 0.20);
+  border-radius: 4px;
+  padding: 0.1em 0.4em;
+  font-size: 0.84em;
+}
+
+/* Code block */
+.doc-html-content pre {
+  background: hsl(240 6% 9%);
+  border: 1px solid hsl(var(--border) / 0.6);
+  border-radius: 10px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+  font-size: 0.84rem;
+}
+.doc-html-content pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: hsl(0 0% 88%);
+  font-size: inherit;
+}
+
+/* Lists */
+.doc-html-content ul,
+.doc-html-content ol {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+.doc-html-content ul { list-style-type: none; padding-left: 1rem; }
+.doc-html-content ul > li { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0.2rem 0; }
+.doc-html-content ul > li::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(38 92% 50%);
+  flex-shrink: 0;
+  margin-top: 0.55em;
+}
+.doc-html-content ol { list-style-type: decimal; }
+.doc-html-content li { line-height: 1.7; margin: 0.2rem 0; }
+
+/* Blockquote */
+.doc-html-content blockquote {
+  border-left: 3px solid hsl(38 92% 50% / 0.5);
+  padding: 0.5rem 0.75rem 0.5rem 1rem;
+  margin: 0.75rem 0;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.4);
+  border-radius: 0 8px 8px 0;
+  font-style: italic;
+}
+
+/* Table */
+.doc-html-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.875rem;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+}
+.doc-html-content thead {
+  background: hsl(var(--muted) / 0.5);
+  border-bottom: 1px solid hsl(var(--border));
+}
+.doc-html-content th {
+  padding: 0.5rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: hsl(var(--foreground));
+}
+.doc-html-content td {
+  padding: 0.5rem 1rem;
+  border-top: 1px solid hsl(var(--border) / 0.5);
+  color: hsl(var(--foreground) / 0.88);
+  vertical-align: top;
+}
+.doc-html-content tr:hover td {
+  background: hsl(var(--muted) / 0.2);
+}
+
+/* Links */
+.doc-html-content a {
+  color: hsl(38 92% 55%);
+  text-decoration: underline;
+  text-decoration-color: hsl(38 92% 50% / 0.4);
+  text-underline-offset: 2px;
+  transition: color 0.1s, text-decoration-color 0.1s;
+}
+.doc-html-content a:hover {
+  color: hsl(38 92% 65%);
+  text-decoration-color: hsl(38 92% 65% / 0.6);
+}
+
+/* Images */
+.doc-html-content img {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 0.75rem 0;
+}
+
+/* HR */
+.doc-html-content hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1.5rem 0;
+  opacity: 0.5;
+}
+
+/* Strong / em */
+.doc-html-content strong,
+.doc-html-content b { color: hsl(var(--foreground)); font-weight: 600; }
+.doc-html-content em,
+.doc-html-content i  { color: hsl(var(--foreground) / 0.9); }
+.doc-html-content del,
+.doc-html-content s  { color: hsl(var(--muted-foreground) / 0.7); }
+
+/* ─── markdown-body ─────────────────────────────────────────────────────────
+   Wrapper for MarkdownRenderer — sets base container constraints.
+   Streaming animation: fade-in each block as it appears.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.markdown-body {
+  /* Prevent overflow from long unbroken words / code */
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Streaming: new paragraphs / blocks fade in smoothly */
+.markdown-body > * {
+  animation: md-block-in 120ms ease-out both;
+}
+
+@keyframes md-block-in {
+  from { opacity: 0.3; }
+  to   { opacity: 1;   }
+}
+
+/* Disable animation for non-streaming contexts (static docs/notes view) */
+.markdown-body.no-animation > * {
+  animation: none;
+}
+
+/* ─── Citation links ────────────────────────────────────────────────────────
+   [1] [2] inline citation buttons in MarkdownRenderer.
+   The ring highlight is applied transiently via JS (SourceCard scroll-to).
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Source card scroll highlight — applied via JS, removed after 1.5s */
+[id^="source-"].ring-2 {
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+/* ─── Markdown textarea (notes editor) ──────────────────────────────────────
+   Reset browser default textarea styles inside the editor.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+textarea.md-editor {
+  font-family: var(--font-space-mono);
+  tab-size: 2;
+}
+
+/* ─── ProseMirror image (already present but ensure it stays) ───────────────*/
+.ProseMirror img {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 0.75rem 0;
+}
+
+/* ─── Smooth scroll for citation jump ──────────────────────────────────────*/
+html {
+  scroll-behavior: smooth;
+}

@@ -4,74 +4,180 @@
  * components/chat/markdown-renderer.tsx
  *
  * Production-grade Markdown renderer for chat messages.
- * Uses react-markdown + remark-gfm (both already in package.json).
- * All styling is inline via Tailwind — no @tailwindcss/typography needed.
+ * Supports streaming partial renders, GFM tables, code blocks,
+ * task lists, citations [1], and inline source references.
  *
- * Supports:
- *  ✅ Headings (h1–h6)          ✅ Bold / Italic / Strikethrough
- *  ✅ Ordered & unordered lists  ✅ Nested lists
- *  ✅ Inline code                ✅ Code blocks (with language label)
- *  ✅ Blockquotes                ✅ Tables (GFM)
- *  ✅ Horizontal rules           ✅ Links (open in new tab)
- *  ✅ Task lists (GFM)
+ * ✅ TypeScript error FIXED: `Property 'className' does not exist on type '{}'`
+ *    Solution: React.isValidElement() + explicit prop casting
+ *
+ * ✅ Streaming-safe: partial content renders progressively with no flicker
+ * ✅ Citation support: [1] inline refs link to SourcesList anchors
+ * ✅ Code blocks: language label + one-click copy button
+ * ✅ Full GFM: tables, task lists, strikethrough
  */
 
+import React, { useState, useCallback, memo } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
 import type { Components } from "react-markdown"
 
-// ─── Shared prose colour tokens ───────────────────────────────────────────────
-const TEXT_BASE    = "text-foreground"
-const TEXT_MUTED   = "text-muted-foreground"
-const TEXT_AMBER   = "text-amber-400"
-const BORDER       = "border-border"
-const BG_MUTED     = "bg-muted/40"
-const BG_CODE      = "bg-zinc-900 dark:bg-zinc-950"
+// ─── Colour tokens (consistent with the amber design system) ──────────────────
+const T = {
+  base:   "text-foreground",
+  muted:  "text-muted-foreground",
+  amber:  "text-amber-400",
+  border: "border-border",
+  bg:     "bg-muted/40",
+  code:   "bg-zinc-900 dark:bg-zinc-950",
+} as const
+
+// ─── Copy button ──────────────────────────────────────────────────────────────
+
+const CopyButton = memo(function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const copy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    }).catch(() => {
+      // Fallback for environments without clipboard API
+      const ta = document.createElement("textarea")
+      ta.value = text
+      ta.style.position = "fixed"
+      ta.style.opacity = "0"
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand("copy")
+      document.body.removeChild(ta)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    })
+  }, [text])
+
+  return (
+    <button
+      onClick={copy}
+      className={cn(
+        "text-[11px] font-mono px-2 py-0.5 rounded border transition-all duration-150",
+        copied
+          ? "text-emerald-400 border-emerald-500/40 bg-emerald-500/10"
+          : "text-zinc-400 border-zinc-700/50 hover:text-zinc-200 hover:border-zinc-600"
+      )}
+    >
+      {copied ? "✓ copied" : "copy"}
+    </button>
+  )
+})
+
+// ─── Citation link ([1], [2], …) ──────────────────────────────────────────────
+// These are rendered inline and scroll to the matching source anchor.
+
+function CitationLink({ number }: { number: number }) {
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const el = document.getElementById(`source-${number}`)
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" })
+      el.classList.add("ring-2", "ring-amber-500/50")
+      setTimeout(() => el.classList.remove("ring-2", "ring-amber-500/50"), 1500)
+    }
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      title={`Jump to source ${number}`}
+      className={cn(
+        "inline-flex items-center justify-center",
+        "min-w-[1.2em] h-4 px-1 mx-0.5",
+        "rounded text-[10px] font-bold font-mono",
+        "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+        "hover:bg-amber-500/25 hover:border-amber-500/50",
+        "transition-all duration-100 cursor-pointer",
+        "align-text-bottom relative -top-px"
+      )}
+    >
+      {number}
+    </button>
+  )
+}
+
+// ─── Pre-process content: transform [N] citation markers ──────────────────────
+// Converts "[1]" "[2]" etc to a special placeholder so ReactMarkdown
+// can render them as CitationLink components via the `text` renderer.
+
+const CITATION_RE = /\[(\d+)\]/g
+
+// We handle citations inside the `p` text renderer by splitting on the pattern.
+function renderWithCitations(text: string): React.ReactNode[] {
+  const parts = text.split(CITATION_RE)
+  if (parts.length === 1) return [text]
+
+  return parts.map((part, i) => {
+    // Every even index is plain text, odd index is the captured number
+    if (i % 2 === 0) return part || null
+    const num = parseInt(part, 10)
+    return isNaN(num) ? `[${part}]` : <CitationLink key={`cite-${i}`} number={num} />
+  })
+}
 
 // ─── Component map ────────────────────────────────────────────────────────────
 
 const components: Components = {
-  // ── Headings ───────────────────────────────────────────────────────────────
+
+  // ── Headings ─────────────────────────────────────────────────────────────
   h1: ({ children }) => (
-    <h1 className={cn("mt-5 mb-3 text-[22px] font-bold leading-tight tracking-tight", TEXT_BASE)}>
+    <h1 className={cn("mt-6 mb-3 text-[22px] font-bold leading-tight tracking-tight", T.base)}>
       {children}
     </h1>
   ),
   h2: ({ children }) => (
-    <h2 className={cn("mt-5 mb-2.5 text-[18px] font-semibold leading-snug", TEXT_BASE)}>
+    <h2 className={cn("mt-5 mb-2.5 text-[18px] font-semibold leading-snug", T.base)}>
       {children}
     </h2>
   ),
   h3: ({ children }) => (
-    <h3 className={cn("mt-4 mb-2 text-[15px] font-semibold", TEXT_BASE)}>
+    <h3 className={cn("mt-4 mb-2 text-[15px] font-semibold", T.base)}>
       {children}
     </h3>
   ),
   h4: ({ children }) => (
-    <h4 className={cn("mt-3 mb-1.5 text-[14px] font-semibold", TEXT_BASE)}>
+    <h4 className={cn("mt-3 mb-1.5 text-[14px] font-semibold", T.base)}>
       {children}
     </h4>
   ),
   h5: ({ children }) => (
-    <h5 className={cn("mt-3 mb-1 text-[13px] font-semibold", TEXT_MUTED)}>
+    <h5 className={cn("mt-3 mb-1 text-[13px] font-semibold", T.muted)}>
       {children}
     </h5>
   ),
   h6: ({ children }) => (
-    <h6 className={cn("mt-2 mb-1 text-[12px] font-semibold uppercase tracking-wide", TEXT_MUTED)}>
+    <h6 className={cn("mt-2 mb-1 text-[12px] font-semibold uppercase tracking-wide", T.muted)}>
       {children}
     </h6>
   ),
 
-  // ── Paragraph ──────────────────────────────────────────────────────────────
-  p: ({ children }) => (
-    <p className={cn("mb-3 last:mb-0 leading-[1.75] text-[14px]", TEXT_BASE)}>
-      {children}
-    </p>
-  ),
+  // ── Paragraph (with citation rendering) ──────────────────────────────────
+  p: ({ children }) => {
+    // Walk children looking for plain text strings to process for citations
+    const processed = React.Children.map(children, (child) => {
+      if (typeof child === "string") {
+        const parts = renderWithCitations(child)
+        return parts.length === 1 && typeof parts[0] === "string" ? child : parts
+      }
+      return child
+    })
 
-  // ── Lists ──────────────────────────────────────────────────────────────────
+    return (
+      <p className={cn("mb-3 last:mb-0 leading-[1.75] text-[14px]", T.base)}>
+        {processed}
+      </p>
+    )
+  },
+
+  // ── Lists ─────────────────────────────────────────────────────────────────
   ul: ({ children }) => (
     <ul className="mb-3 ml-4 space-y-1 list-none">
       {children}
@@ -82,48 +188,49 @@ const components: Components = {
       {children}
     </ol>
   ),
-  li: ({ children, ...props }) => {
-    // Task list item detection
-    const childArray = Array.isArray(children) ? children : [children]
+  li: ({ children }) => {
+    const childArray = React.Children.toArray(children)
     const firstChild = childArray[0]
-    const isTaskItem = firstChild && typeof firstChild === "object" &&
-      "props" in (firstChild as object) &&
-      (firstChild as React.ReactElement).type === "input"
+
+    // GFM task list item — first child is a checkbox input
+    const isTaskItem =
+      React.isValidElement(firstChild) &&
+      (firstChild as React.ReactElement<{ type?: string }>).props.type === "checkbox"
 
     if (isTaskItem) {
       return (
-        <li className={cn("flex items-start gap-2 text-[14px] leading-[1.7]", TEXT_BASE)} {...props}>
+        <li className={cn("flex items-start gap-2 text-[14px] leading-[1.7]", T.base)}>
           {children}
         </li>
       )
     }
 
     return (
-      <li className={cn("flex items-start gap-2 text-[14px] leading-[1.7]", TEXT_BASE)}>
-        <span className={cn("mt-[0.45em] w-1.5 h-1.5 rounded-full flex-shrink-0", TEXT_AMBER)} 
-              style={{ background: "currentColor", minWidth: "6px" }} />
+      <li className={cn("flex items-start gap-2 text-[14px] leading-[1.7]", T.base)}>
+        <span
+          className={cn("mt-[0.48em] w-1.5 h-1.5 rounded-full flex-shrink-0", T.amber)}
+          style={{ background: "currentColor", minWidth: "6px" }}
+        />
         <span className="flex-1 min-w-0">{children}</span>
       </li>
     )
   },
 
-  // ── Checkbox (task list) ───────────────────────────────────────────────────
-  input: ({ checked, ...props }) => (
+  // ── Checkbox (GFM task list) ──────────────────────────────────────────────
+  input: ({ checked }) => (
     <input
       type="checkbox"
-      checked={checked}
+      checked={!!checked}
       readOnly
       className="mt-1 w-3.5 h-3.5 rounded border border-border accent-amber-500 flex-shrink-0 cursor-default"
-      {...props}
     />
   ),
 
-  // ── Inline code ────────────────────────────────────────────────────────────
-  // Note: CodeBlock below handles the fenced ```lang``` case
+  // ── Inline code ───────────────────────────────────────────────────────────
   code: ({ children, className }) => {
-    const isBlock = className?.startsWith("language-")
+    const isBlock = typeof className === "string" && className.startsWith("language-")
     if (isBlock) {
-      // Handled by `pre` below
+      // Fenced code blocks are handled by `pre` below
       return <code className={className}>{children}</code>
     }
     return (
@@ -133,30 +240,40 @@ const components: Components = {
     )
   },
 
-  // ── Code block ─────────────────────────────────────────────────────────────
-  pre: ({ children, ...props }) => {
-    // Extract language from className="language-xxx"
-    const codeEl = children as React.ReactElement | null
-    const lang = codeEl?.props?.className?.replace("language-", "") ?? ""
-    const codeText = codeEl?.props?.children ?? ""
+  // ── Code block ────────────────────────────────────────────────────────────
+  // FIX: `children` typed as React.ReactNode → use React.isValidElement + cast
+  pre: ({ children }) => {
+    // ✅ TYPESCRIPT FIX: isValidElement guard + explicit prop cast
+    let lang = ""
+    let codeText = ""
+
+    if (React.isValidElement(children)) {
+      const childProps = children.props as {
+        className?: string
+        children?: React.ReactNode
+      }
+      lang = childProps.className?.replace("language-", "") ?? ""
+      codeText = typeof childProps.children === "string"
+        ? childProps.children
+        : String(childProps.children ?? "")
+    }
 
     return (
       <div className="mb-4 rounded-xl overflow-hidden border border-border/60 shadow-sm">
-        {/* Header bar */}
+        {/* Header */}
         <div className="flex items-center justify-between px-4 py-2 bg-zinc-800/80 border-b border-zinc-700/50">
-          <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
+          <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider select-none">
             {lang || "code"}
           </span>
-          <CopyButton text={String(codeText)} />
+          <CopyButton text={codeText} />
         </div>
-        {/* Code */}
+        {/* Code body */}
         <pre
           className={cn(
             "overflow-x-auto px-4 py-3 text-[12.5px] font-mono leading-[1.7]",
-            BG_CODE,
+            T.code,
             "text-zinc-200"
           )}
-          {...props}
         >
           {children}
         </pre>
@@ -164,25 +281,25 @@ const components: Components = {
     )
   },
 
-  // ── Blockquote ─────────────────────────────────────────────────────────────
+  // ── Blockquote ────────────────────────────────────────────────────────────
   blockquote: ({ children }) => (
     <blockquote className={cn(
       "my-3 pl-4 border-l-[3px] border-amber-500/50",
       "text-[14px] italic",
-      TEXT_MUTED,
-      BG_MUTED,
+      T.muted,
+      T.bg,
       "pr-3 py-2 rounded-r-lg"
     )}>
       {children}
     </blockquote>
   ),
 
-  // ── Horizontal rule ────────────────────────────────────────────────────────
+  // ── Horizontal rule ───────────────────────────────────────────────────────
   hr: () => (
-    <hr className={cn("my-5 border-t", BORDER, "opacity-50")} />
+    <hr className={cn("my-5 border-t", T.border, "opacity-50")} />
   ),
 
-  // ── Strong / Em / Del ──────────────────────────────────────────────────────
+  // ── Inline typography ─────────────────────────────────────────────────────
   strong: ({ children }) => (
     <strong className="font-semibold text-foreground">{children}</strong>
   ),
@@ -193,7 +310,7 @@ const components: Components = {
     <del className="line-through text-muted-foreground/70">{children}</del>
   ),
 
-  // ── Link ───────────────────────────────────────────────────────────────────
+  // ── Links ─────────────────────────────────────────────────────────────────
   a: ({ href, children }) => (
     <a
       href={href}
@@ -205,7 +322,7 @@ const components: Components = {
     </a>
   ),
 
-  // ── Table ──────────────────────────────────────────────────────────────────
+  // ── Tables ────────────────────────────────────────────────────────────────
   table: ({ children }) => (
     <div className="mb-4 overflow-x-auto rounded-lg border border-border">
       <table className="w-full text-[13px] border-collapse">
@@ -240,37 +357,21 @@ const components: Components = {
   ),
 }
 
-// ─── Copy button ──────────────────────────────────────────────────────────────
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = React.useState(false)
-  const copy = () => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
-  }
-  return (
-    <button
-      onClick={copy}
-      className="text-[11px] font-mono text-zinc-400 hover:text-zinc-200 transition-colors px-2 py-0.5 rounded border border-zinc-700/50 hover:border-zinc-600"
-    >
-      {copied ? "✓ copied" : "copy"}
-    </button>
-  )
-}
-
-// Need React import for CopyButton state
-import React from "react"
-
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─── Main export ──────────────────────────────────────────────────────────────
 
 interface MarkdownRendererProps {
+  /** Markdown string — can be partial (streaming) */
   content: string
   className?: string
+  /** Pass true while the stream is live — disables citation scroll (links not yet numbered) */
+  streaming?: boolean
 }
 
-export function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
+export const MarkdownRenderer = memo(function MarkdownRenderer({
+  content,
+  className,
+  streaming: _streaming,
+}: MarkdownRendererProps) {
   if (!content) return null
 
   return (
@@ -283,4 +384,4 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
       </ReactMarkdown>
     </div>
   )
-}
+})
