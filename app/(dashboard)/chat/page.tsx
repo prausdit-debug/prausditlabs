@@ -12,7 +12,8 @@ import {
   FolderOpen, Hash, ExternalLink, Layers,
   FlaskConical,
 } from "lucide-react"
-import { DocContent } from "@/components/docs/doc-content"
+import { MarkdownRenderer } from "@/components/chat/markdown-renderer"
+import { SourcesList } from "@/components/chat/sources-list"
 import { useCurrentUser } from "@/components/auth/auth-guard"
 import { useProject, Project } from "@/components/project/project-context"
 import { ModelBadge } from "@/components/chatbot/model-badge"
@@ -1471,9 +1472,11 @@ ${toolLines.join("\n")}
                     <BrainCircuit className="w-4 h-4 text-amber-400" />
                   </div>
                 )}
-                <div className="max-w-[80%] flex flex-col">
-                  <div className={cn("rounded-xl px-4 py-3 text-[14px]",
-                    msg.role === "user" ? "bg-amber-500 text-black rounded-br-sm" : "bg-muted border border-border rounded-bl-sm")}>
+                <div className="max-w-[85%] flex flex-col min-w-0">
+                  <div className={cn("rounded-xl text-[14px] min-w-0",
+                    msg.role === "user"
+                      ? "px-4 py-3 bg-amber-500 text-black rounded-br-sm"
+                      : "px-4 py-4 bg-muted/60 border border-border/60 rounded-bl-sm")}>
                     {msg.loading && !msg.content && !msg.agentSteps?.length ? (
                       <div className="flex items-center gap-2">
                         <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
@@ -1491,9 +1494,14 @@ ${toolLines.join("\n")}
                         )}
                         {msg.content && (
                           msg.role === "assistant"
-                            ? <div className="prose-dark text-[14px]"><DocContent content={msg.content} /></div>
-                            : <span className="leading-relaxed">{msg.content}</span>
+                            ? <MarkdownRenderer content={msg.content} />
+                            : <span className="leading-relaxed whitespace-pre-wrap text-[14px]">{msg.content}</span>
                         )}
+                        {/* ── Sources section (web search results) ───────── */}
+                        {msg.role === "assistant" && !msg.loading && !!msg.agentSteps?.length && (
+                          <SourcesList steps={msg.agentSteps} />
+                        )}
+                        {/* ── Agent steps collapsible panel ──────────────── */}
                         {msg.role === "assistant" && !!msg.agentSteps?.length && !msg.loading && (
                           <AgentStepsPanel steps={msg.agentSteps} expanded={msg.stepsExpanded ?? false} onToggle={() => toggleSteps(msg.id)} />
                         )}
