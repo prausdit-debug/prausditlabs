@@ -4,7 +4,7 @@ export default function PrivacyPolicyPage() {
       <h1>Privacy Policy</h1>
 
       <p>
-        This Privacy Policy describes how <strong>Prostit Research Lab (PRAUSDIT)</strong> 
+        This Privacy Policy describes how <strong>Prausdit Research Lab (PRAUSDIT)</strong> 
         collects, uses, and protects information within its internal developer platform.
       </p>
 
