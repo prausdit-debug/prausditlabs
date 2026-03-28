@@ -4,7 +4,7 @@ export default function TermsPage() {
       <h1>Terms & Conditions</h1>
 
       <p>
-        These Terms & Conditions govern the use of <strong>Prostit Research Lab (PRAUSDIT)</strong>, 
+        These Terms & Conditions govern the use of <strong>Prausdit Research Lab (PRAUSDIT)</strong>, 
         an internal development and research platform.
       </p>
 
