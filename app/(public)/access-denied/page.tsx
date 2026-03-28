@@ -85,7 +85,7 @@ export default function AccessDeniedPage() {
 
       {/* ✅ FOOTER (IMPORTANT FOR GOOGLE VERIFICATION) */}
       <div className="mt-10 text-center space-x-4 text-[12px] text-muted-foreground">
-        <Link href="/privacy-policy" className="hover:text-foreground underline">
+        <Link href="/privacy" className="hover:text-foreground underline">
           Privacy Policy
         </Link>
         <span>•</span>
