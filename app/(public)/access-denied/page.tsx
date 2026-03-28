@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useClerk } from "@clerk/nextjs"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { FlaskConical, Lock, Loader2 } from "lucide-react"
 
 export default function AccessDeniedPage() {
@@ -17,15 +18,21 @@ export default function AccessDeniedPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+      
+      {/* MAIN CONTENT */}
       <div className="max-w-md w-full text-center space-y-6">
         <div className="flex items-center justify-center gap-2.5 mb-8">
           <div className="w-8 h-8 rounded-md bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
             <FlaskConical className="w-5 h-5 text-amber-400" />
           </div>
           <div className="text-left">
-            <p className="text-[14px] font-semibold text-foreground">Prausdit Research Lab</p>
-            <p className="text-[11px] text-muted-foreground">AI Agent Research Environment</p>
+            <p className="text-[14px] font-semibold text-foreground">
+              Prausdit Research Lab
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              AI Agent Research Environment
+            </p>
           </div>
         </div>
 
@@ -34,23 +41,31 @@ export default function AccessDeniedPage() {
         </div>
 
         <div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">Access Denied</h1>
+          <h1 className="text-2xl font-bold text-foreground mb-2">
+            Access Denied
+          </h1>
           <p className="text-[14px] text-muted-foreground leading-relaxed">
             You do not have permission to access this dashboard.
           </p>
           <p className="text-[14px] text-muted-foreground mt-3">
             Only users with{" "}
-            <span className="text-amber-400 font-mono text-[13px]">admin</span> or{" "}
-            <span className="text-blue-400 font-mono text-[13px]">developer</span> roles
-            may access this platform.
+            <span className="text-amber-400 font-mono text-[13px]">admin</span>{" "}
+            or{" "}
+            <span className="text-blue-400 font-mono text-[13px]">
+              developer
+            </span>{" "}
+            roles may access this platform.
           </p>
         </div>
 
         <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-          <p className="text-[13px] text-amber-400 font-semibold mb-1">Need Access?</p>
+          <p className="text-[13px] text-amber-400 font-semibold mb-1">
+            Need Access?
+          </p>
           <p className="text-[12px] text-muted-foreground">
             Contact the platform administrator to request developer access to Prausdit Research Lab.
           </p>
+          
         </div>
 
         <button
@@ -68,6 +83,20 @@ export default function AccessDeniedPage() {
           )}
         </button>
       </div>
+
+      {/* ✅ FOOTER (IMPORTANT FOR GOOGLE VERIFICATION) */}
+      <div className="mt-10 text-center space-x-4 text-[12px] text-muted-foreground">
+        <Link href="/privacy" className="hover:text-foreground underline">
+          Privacy Policy
+        </Link>
+        <span>•</span>
+        <Link href="/terms" className="hover:text-foreground underline">
+          Terms & Conditions
+        </Link>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+  © {new Date().getFullYear()} Prausdit Research Lab (PRAUSDIT)
+</p>
+      </div>
     </div>
   )
-}
+            }
